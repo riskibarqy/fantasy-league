@@ -1,7 +1,33 @@
+# Local build/temp artifacts
 /bin/
 /tmp/
-/.idea/
-/.vscode/
+
+# OS/editor
 .DS_Store
+.idea/
+.vscode/
+
+# Logs and env
 *.log
 .env
+
+# Go binaries and shared libraries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries and reports
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories (uncomment if needed)
+# vendor/
