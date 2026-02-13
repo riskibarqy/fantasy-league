@@ -70,7 +70,12 @@ tidy:
 	$(GO) mod tidy
 
 fmt:
-	gofmt -w $$(rg --files -g '*.go')
+	@files="$$(if command -v rg >/dev/null 2>&1; then rg --files -g '*.go'; else find . -type f -name '*.go' -not -path './vendor/*'; fi)"; \
+	if [ -z "$$files" ]; then \
+		echo "no Go files found"; \
+	else \
+		gofmt -w $$files; \
+	fi
 
 pprof-cpu:
 	@echo "Fetching CPU profile from $(PPROF_URL)/profile?seconds=$(PPROF_SECONDS)"

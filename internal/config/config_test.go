@@ -25,6 +25,7 @@ func TestLoad_DefaultsByEnv(t *testing.T) {
 	t.Run("prod disables swagger by default", func(t *testing.T) {
 		t.Setenv("APP_ENV", EnvProd)
 		t.Setenv("UPTRACE_ENABLED", "false")
+		t.Setenv("SWAGGER_ENABLED", "")
 
 		cfg, err := Load()
 		if err != nil {
@@ -38,6 +39,7 @@ func TestLoad_DefaultsByEnv(t *testing.T) {
 	t.Run("dev enables swagger by default", func(t *testing.T) {
 		t.Setenv("APP_ENV", EnvDev)
 		t.Setenv("UPTRACE_ENABLED", "false")
+		t.Setenv("SWAGGER_ENABLED", "")
 
 		cfg, err := Load()
 		if err != nil {
