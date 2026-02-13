@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS lineups;
+DROP TABLE IF EXISTS fantasy_squad_picks;
+DROP TABLE IF EXISTS fantasy_squads;
+DROP TABLE IF EXISTS fixtures;
+DROP TABLE IF EXISTS players;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS leagues;
+DROP FUNCTION IF EXISTS touch_updated_at();

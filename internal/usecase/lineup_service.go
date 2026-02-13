@@ -1,0 +1,246 @@
+package usecase
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/riskibarqy/fantasy-league/internal/domain/league"
+	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
+	"github.com/riskibarqy/fantasy-league/internal/domain/player"
+)
+
+const (
+	lineupStarterSize    = 11
+	lineupSubstituteSize = 5
+)
+
+type SaveLineupInput struct {
+	UserID        string
+	LeagueID      string
+	GoalkeeperID  string
+	DefenderIDs   []string
+	MidfielderIDs []string
+	ForwardIDs    []string
+	SubstituteIDs []string
+	CaptainID     string
+	ViceCaptainID string
+}
+
+type LineupService struct {
+	leagueRepo league.Repository
+	playerRepo player.Repository
+	lineupRepo lineup.Repository
+	now        func() time.Time
+}
+
+func NewLineupService(
+	leagueRepo league.Repository,
+	playerRepo player.Repository,
+	lineupRepo lineup.Repository,
+) *LineupService {
+	return &LineupService{
+		leagueRepo: leagueRepo,
+		playerRepo: playerRepo,
+		lineupRepo: lineupRepo,
+		now:        time.Now,
+	}
+}
+
+func (s *LineupService) GetByUserAndLeague(ctx context.Context, userID, leagueID string) (lineup.Lineup, bool, error) {
+	userID = strings.TrimSpace(userID)
+	leagueID = strings.TrimSpace(leagueID)
+	if userID == "" || leagueID == "" {
+		return lineup.Lineup{}, false, fmt.Errorf("%w: user_id and league_id are required", ErrInvalidInput)
+	}
+
+	item, exists, err := s.lineupRepo.GetByUserAndLeague(ctx, userID, leagueID)
+	if err != nil {
+		return lineup.Lineup{}, false, fmt.Errorf("get lineup by user and league: %w", err)
+	}
+
+	return item, exists, nil
+}
+
+func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup.Lineup, error) {
+	input.UserID = strings.TrimSpace(input.UserID)
+	input.LeagueID = strings.TrimSpace(input.LeagueID)
+	input.GoalkeeperID = strings.TrimSpace(input.GoalkeeperID)
+	input.CaptainID = strings.TrimSpace(input.CaptainID)
+	input.ViceCaptainID = strings.TrimSpace(input.ViceCaptainID)
+
+	if input.UserID == "" {
+		return lineup.Lineup{}, fmt.Errorf("%w: user_id is required", ErrInvalidInput)
+	}
+	if input.LeagueID == "" {
+		return lineup.Lineup{}, fmt.Errorf("%w: league_id is required", ErrInvalidInput)
+	}
+
+	if err := s.validateLeague(ctx, input.LeagueID); err != nil {
+		return lineup.Lineup{}, err
+	}
+
+	defenderIDs, err := normalizeIDs(input.DefenderIDs)
+	if err != nil {
+		return lineup.Lineup{}, err
+	}
+	midfielderIDs, err := normalizeIDs(input.MidfielderIDs)
+	if err != nil {
+		return lineup.Lineup{}, err
+	}
+	forwardIDs, err := normalizeIDs(input.ForwardIDs)
+	if err != nil {
+		return lineup.Lineup{}, err
+	}
+	substituteIDs, err := normalizeIDs(input.SubstituteIDs)
+	if err != nil {
+		return lineup.Lineup{}, err
+	}
+
+	if len(defenderIDs) < 2 || len(defenderIDs) > 5 {
+		return lineup.Lineup{}, fmt.Errorf("%w: defender count must be between 2 and 5", ErrInvalidInput)
+	}
+	if len(midfielderIDs) > 5 {
+		return lineup.Lineup{}, fmt.Errorf("%w: midfielder count must not exceed 5", ErrInvalidInput)
+	}
+	if len(forwardIDs) > 3 {
+		return lineup.Lineup{}, fmt.Errorf("%w: forward count must not exceed 3", ErrInvalidInput)
+	}
+	if len(substituteIDs) != lineupSubstituteSize {
+		return lineup.Lineup{}, fmt.Errorf("%w: substitute bench must contain exactly 5 players", ErrInvalidInput)
+	}
+
+	starters := append([]string{input.GoalkeeperID}, defenderIDs...)
+	starters = append(starters, midfielderIDs...)
+	starters = append(starters, forwardIDs...)
+
+	if len(starters) != lineupStarterSize {
+		return lineup.Lineup{}, fmt.Errorf("%w: starting lineup must contain 11 players", ErrInvalidInput)
+	}
+
+	starterSet := make(map[string]struct{}, len(starters))
+	for _, id := range starters {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return lineup.Lineup{}, fmt.Errorf("%w: starter player id cannot be empty", ErrInvalidInput)
+		}
+		if _, exists := starterSet[id]; exists {
+			return lineup.Lineup{}, fmt.Errorf("%w: duplicate starter player id %s", ErrInvalidInput, id)
+		}
+		starterSet[id] = struct{}{}
+	}
+
+	for _, id := range substituteIDs {
+		if _, exists := starterSet[id]; exists {
+			return lineup.Lineup{}, fmt.Errorf("%w: substitutes must be different from starters", ErrInvalidInput)
+		}
+	}
+
+	allIDs := append(append([]string(nil), starters...), substituteIDs...)
+	allSet := make(map[string]struct{}, len(allIDs))
+	for _, id := range allIDs {
+		if _, exists := allSet[id]; exists {
+			return lineup.Lineup{}, fmt.Errorf("%w: duplicate player id in squad %s", ErrInvalidInput, id)
+		}
+		allSet[id] = struct{}{}
+	}
+
+	if len(allIDs) != lineupStarterSize+lineupSubstituteSize {
+		return lineup.Lineup{}, fmt.Errorf("%w: squad must contain 16 players", ErrInvalidInput)
+	}
+
+	if _, ok := starterSet[input.CaptainID]; !ok {
+		return lineup.Lineup{}, fmt.Errorf("%w: captain must be in starters", ErrInvalidInput)
+	}
+	if _, ok := starterSet[input.ViceCaptainID]; !ok {
+		return lineup.Lineup{}, fmt.Errorf("%w: vice captain must be in starters", ErrInvalidInput)
+	}
+	if input.CaptainID == input.ViceCaptainID {
+		return lineup.Lineup{}, fmt.Errorf("%w: captain and vice captain must be different", ErrInvalidInput)
+	}
+
+	players, err := s.playerRepo.GetByIDs(ctx, input.LeagueID, allIDs)
+	if err != nil {
+		return lineup.Lineup{}, fmt.Errorf("get players by ids: %w", err)
+	}
+	if len(players) != len(allIDs) {
+		return lineup.Lineup{}, fmt.Errorf("%w: some players are not available in league", ErrInvalidInput)
+	}
+
+	playersByID := make(map[string]player.Player, len(players))
+	for _, p := range players {
+		playersByID[p.ID] = p
+	}
+
+	if playersByID[input.GoalkeeperID].Position != player.PositionGoalkeeper {
+		return lineup.Lineup{}, fmt.Errorf("%w: goalkeeper slot must contain a GK", ErrInvalidInput)
+	}
+
+	if err := validatePositionIDs(defenderIDs, player.PositionDefender, playersByID); err != nil {
+		return lineup.Lineup{}, err
+	}
+	if err := validatePositionIDs(midfielderIDs, player.PositionMidfielder, playersByID); err != nil {
+		return lineup.Lineup{}, err
+	}
+	if err := validatePositionIDs(forwardIDs, player.PositionForward, playersByID); err != nil {
+		return lineup.Lineup{}, err
+	}
+
+	item := lineup.Lineup{
+		UserID:        input.UserID,
+		LeagueID:      input.LeagueID,
+		GoalkeeperID:  input.GoalkeeperID,
+		DefenderIDs:   defenderIDs,
+		MidfielderIDs: midfielderIDs,
+		ForwardIDs:    forwardIDs,
+		SubstituteIDs: substituteIDs,
+		CaptainID:     input.CaptainID,
+		ViceCaptainID: input.ViceCaptainID,
+		UpdatedAt:     s.now().UTC(),
+	}
+
+	if err := s.lineupRepo.Upsert(ctx, item); err != nil {
+		return lineup.Lineup{}, fmt.Errorf("save lineup: %w", err)
+	}
+
+	return item, nil
+}
+
+func (s *LineupService) validateLeague(ctx context.Context, leagueID string) error {
+	_, exists, err := s.leagueRepo.GetByID(ctx, leagueID)
+	if err != nil {
+		return fmt.Errorf("get league by id: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: league=%s", ErrNotFound, leagueID)
+	}
+
+	return nil
+}
+
+func normalizeIDs(ids []string) ([]string, error) {
+	cleaned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, fmt.Errorf("%w: player id cannot be empty", ErrInvalidInput)
+		}
+		cleaned = append(cleaned, id)
+	}
+	return cleaned, nil
+}
+
+func validatePositionIDs(ids []string, expected player.Position, playersByID map[string]player.Player) error {
+	for _, id := range ids {
+		p, ok := playersByID[id]
+		if !ok {
+			return fmt.Errorf("%w: unknown player id %s", ErrInvalidInput, id)
+		}
+		if p.Position != expected {
+			return fmt.Errorf("%w: player %s must have position %s", ErrInvalidInput, id, expected)
+		}
+	}
+
+	return nil
+}

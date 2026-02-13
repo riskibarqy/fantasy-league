@@ -1,6 +1,9 @@
 package memory
 
 import (
+	"time"
+
+	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
@@ -63,5 +66,73 @@ func SeedPlayers() []player.Player {
 		{ID: "eng-def-01", LeagueID: LeagueIDPremierLeague, TeamID: "eng-ars", Name: "William Saliba", Position: player.PositionDefender, Price: 96},
 		{ID: "eng-mid-01", LeagueID: LeagueIDPremierLeague, TeamID: "eng-liv", Name: "Dominik Szoboszlai", Position: player.PositionMidfielder, Price: 98},
 		{ID: "eng-fwd-01", LeagueID: LeagueIDPremierLeague, TeamID: "eng-liv", Name: "Darwin Nunez", Position: player.PositionForward, Price: 104},
+	}
+}
+
+func SeedFixtures() []fixture.Fixture {
+	return []fixture.Fixture{
+		{
+			ID:        "fx-idn-001",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  1,
+			HomeTeam:  "Persija Jakarta",
+			AwayTeam:  "Persib Bandung",
+			KickoffAt: time.Date(2026, 2, 14, 19, 0, 0, 0, time.UTC),
+			Venue:     "Jakarta International Stadium",
+		},
+		{
+			ID:        "fx-idn-002",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  1,
+			HomeTeam:  "Persebaya Surabaya",
+			AwayTeam:  "Bali United",
+			KickoffAt: time.Date(2026, 2, 15, 12, 30, 0, 0, time.UTC),
+			Venue:     "Gelora Bung Tomo",
+		},
+		{
+			ID:        "fx-idn-003",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  2,
+			HomeTeam:  "Persib Bandung",
+			AwayTeam:  "Persebaya Surabaya",
+			KickoffAt: time.Date(2026, 2, 21, 12, 30, 0, 0, time.UTC),
+			Venue:     "Gelora Bandung Lautan Api",
+		},
+		{
+			ID:        "fx-idn-004",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  2,
+			HomeTeam:  "Bali United",
+			AwayTeam:  "Persija Jakarta",
+			KickoffAt: time.Date(2026, 2, 22, 12, 30, 0, 0, time.UTC),
+			Venue:     "Kapten I Wayan Dipta",
+		},
+		{
+			ID:        "fx-idn-005",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  3,
+			HomeTeam:  "Persija Jakarta",
+			AwayTeam:  "Persebaya Surabaya",
+			KickoffAt: time.Date(2026, 2, 28, 12, 30, 0, 0, time.UTC),
+			Venue:     "Jakarta International Stadium",
+		},
+		{
+			ID:        "fx-idn-006",
+			LeagueID:  LeagueIDLiga1Indonesia,
+			Gameweek:  3,
+			HomeTeam:  "Persib Bandung",
+			AwayTeam:  "Bali United",
+			KickoffAt: time.Date(2026, 3, 1, 12, 30, 0, 0, time.UTC),
+			Venue:     "Gelora Bandung Lautan Api",
+		},
+		{
+			ID:        "fx-eng-001",
+			LeagueID:  LeagueIDPremierLeague,
+			Gameweek:  1,
+			HomeTeam:  "Arsenal",
+			AwayTeam:  "Liverpool",
+			KickoffAt: time.Date(2026, 2, 14, 15, 0, 0, 0, time.UTC),
+			Venue:     "Emirates Stadium",
+		},
 	}
 }

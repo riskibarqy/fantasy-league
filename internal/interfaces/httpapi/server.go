@@ -5,35 +5,42 @@ import (
 	"net/http"
 )
 
-func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger) http.Handler {
+func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, swaggerEnabled bool) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handler.Healthz)
+	if swaggerEnabled {
+		mux.HandleFunc("GET /openapi.yaml", handler.OpenAPI)
+		mux.HandleFunc("GET /docs", handler.SwaggerUI)
+		mux.HandleFunc("GET /docs/", handler.SwaggerUI)
+	}
+	mux.HandleFunc("GET /v1/dashboard", handler.GetDashboard)
 	mux.HandleFunc("GET /v1/leagues", handler.ListLeagues)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/teams", handler.ListTeamsByLeague)
+	mux.HandleFunc("GET /v1/leagues/{leagueID}/fixtures", handler.ListFixturesByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players", handler.ListPlayersByLeague)
+	mux.HandleFunc("GET /v1/leagues/{leagueID}/lineup", handler.GetLineupByLeague)
+	mux.HandleFunc("PUT /v1/leagues/{leagueID}/lineup", handler.SaveLineupByLeague)
 	mux.Handle("POST /v1/fantasy/squads", RequireAuth(verifier, http.HandlerFunc(handler.UpsertSquad)))
 	mux.Handle("GET /v1/fantasy/squads/me", RequireAuth(verifier, http.HandlerFunc(handler.GetMySquad)))
 
-	return RequestLogging(logger, recoverPanic(logger, mux))
+	return RequestTracing(RequestLogging(logger, recoverPanic(logger, mux)))
 }
 
 func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := startSpan(r.Context(), "httpapi.recoverPanic")
+		defer span.End()
+
 		defer func() {
 			if rec := recover(); rec != nil {
-				logger.ErrorContext(r.Context(), "panic recovered", "panic", rec)
-				writeJSON(w, http.StatusInternalServerError, map[string]any{
-					"error": map[string]any{
-						"code":    "INTERNAL_ERROR",
-						"message": "internal server error",
-					},
-				})
+				logger.ErrorContext(ctx, "panic recovered", "panic", rec)
+				writeInternalError(ctx, w)
 			}
 		}()
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -1,15 +1,27 @@
 # Local build/temp artifacts
 /bin/
 /tmp/
+*.tmp
+*.bak
 
 # OS/editor
 .DS_Store
 .idea/
-.vscode/
+*.iml
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
 
 # Logs and env
 *.log
 .env
+.env.local
+.env.*.local
+.env.prod 
+.env.stage 
+.env.dev
+nohup.out
 
 # Go binaries and shared libraries
 *.exe
@@ -24,6 +36,11 @@
 coverage.*
 *.coverprofile
 profile.cov
+*.pprof
+*.prof
+*.trace
+cpu.out
+heap.out
 
 # Go workspace files
 go.work
@@ -31,3 +48,5 @@ go.work.sum
 
 # Dependency directories (uncomment if needed)
 # vendor/
+
+.vscode

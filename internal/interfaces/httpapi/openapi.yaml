@@ -1,0 +1,288 @@
+openapi: 3.0.3
+info:
+  title: Fantasy League API
+  version: 1.0.0
+  description: Fantasy League backend API for dashboard, leagues, fixtures, players, and lineup management.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service healthy
+  /v1/dashboard:
+    get:
+      summary: Get dashboard summary
+      responses:
+        '200':
+          description: Dashboard payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+  /v1/leagues:
+    get:
+      summary: List leagues
+      responses:
+        '200':
+          description: League list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/League'
+  /v1/leagues/{leagueID}/fixtures:
+    get:
+      summary: List fixtures by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Fixture list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Fixture'
+  /v1/leagues/{leagueID}/players:
+    get:
+      summary: List players by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Player list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Player'
+  /v1/leagues/{leagueID}/lineup:
+    get:
+      summary: Get lineup by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lineup payload or null when not set
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Lineup'
+                  - type: 'null'
+    put:
+      summary: Save lineup by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LineupWriteRequest'
+      responses:
+        '200':
+          description: Saved lineup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lineup'
+  /v1/fantasy/squads:
+    post:
+      summary: Upsert authenticated squad
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                league_id:
+                  type: string
+                squad_name:
+                  type: string
+                player_ids:
+                  type: array
+                  items:
+                    type: string
+              required: [league_id, squad_name, player_ids]
+      responses:
+        '200':
+          description: Squad upserted
+  /v1/fantasy/squads/me:
+    get:
+      summary: Get authenticated squad
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: league_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Squad payload
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Dashboard:
+      type: object
+      properties:
+        gameweek:
+          type: integer
+        budget:
+          type: number
+        teamValue:
+          type: number
+        totalPoints:
+          type: integer
+        rank:
+          type: integer
+        selectedLeagueId:
+          type: string
+      required: [gameweek, budget, teamValue, totalPoints, rank, selectedLeagueId]
+    League:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        countryCode:
+          type: string
+        logoUrl:
+          type: string
+      required: [id, name, countryCode, logoUrl]
+    Fixture:
+      type: object
+      properties:
+        id:
+          type: string
+        leagueId:
+          type: string
+        gameweek:
+          type: integer
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        kickoffAt:
+          type: string
+          format: date-time
+        venue:
+          type: string
+      required: [id, leagueId, gameweek, homeTeam, awayTeam, kickoffAt, venue]
+    Player:
+      type: object
+      properties:
+        id:
+          type: string
+        leagueId:
+          type: string
+        name:
+          type: string
+        club:
+          type: string
+        position:
+          type: string
+          enum: [GK, DEF, MID, FWD]
+        price:
+          type: number
+        form:
+          type: number
+        projectedPoints:
+          type: number
+        isInjured:
+          type: boolean
+      required: [id, leagueId, name, club, position, price, form, projectedPoints, isInjured]
+    Lineup:
+      type: object
+      properties:
+        leagueId:
+          type: string
+        goalkeeperId:
+          type: string
+        defenderIds:
+          type: array
+          items:
+            type: string
+        midfielderIds:
+          type: array
+          items:
+            type: string
+        forwardIds:
+          type: array
+          items:
+            type: string
+        substituteIds:
+          type: array
+          items:
+            type: string
+        captainId:
+          type: string
+        viceCaptainId:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+      required: [leagueId, goalkeeperId, defenderIds, midfielderIds, forwardIds, substituteIds, captainId, viceCaptainId, updatedAt]
+    LineupWriteRequest:
+      type: object
+      properties:
+        leagueId:
+          type: string
+        goalkeeperId:
+          type: string
+        defenderIds:
+          type: array
+          items:
+            type: string
+        midfielderIds:
+          type: array
+          items:
+            type: string
+        forwardIds:
+          type: array
+          items:
+            type: string
+        substituteIds:
+          type: array
+          items:
+            type: string
+        captainId:
+          type: string
+        viceCaptainId:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+      required: [goalkeeperId, defenderIds, midfielderIds, forwardIds, substituteIds, captainId, viceCaptainId]
