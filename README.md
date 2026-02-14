@@ -148,6 +148,53 @@ Example:
 DB_URL='postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable' make migrate-up
 ```
 
+## Fly.io Deployment
+
+This repo now includes:
+
+- `fly.toml`
+- `Dockerfile`
+- `.dockerignore`
+- `make fly-secrets`
+- `make fly-deploy`
+
+Deploy steps (pattern aligned with `../../rust/anubis`):
+
+1. Set required env vars:
+
+```bash
+export FLY_APP='fantasy-league-rw84mq'
+export DB_URL='postgres://...'
+export ANUBIS_BASE_URL='https://anubis.example.com'
+export ANUBIS_ADMIN_KEY='...'
+```
+
+2. Push secrets to Fly:
+
+```bash
+make fly-secrets
+```
+
+3. Deploy:
+
+```bash
+make fly-deploy
+```
+
+Cost-focused defaults in `fly.toml`:
+
+- `auto_stop_machines = "stop"`
+- `auto_start_machines = true`
+- `min_machines_running = 0`
+- smallest shared VM (`shared`, 1 CPU, 256 MB)
+- no Fly volume attached by default
+
+Important for near-$0:
+
+- Use an external free-tier Postgres provider (no Fly volume/managed DB from this app).
+- Keep `min_machines_running = 0` so idle app can scale to zero.
+- Do not allocate dedicated IPv4 unless needed.
+
 ## VS Code Run/Debug
 
 Configured files:

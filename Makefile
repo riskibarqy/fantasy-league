@@ -3,15 +3,18 @@ SHELL := /bin/bash
 # Runtime profile (dev|stage|prod)
 APP_ENV ?= dev
 ENV_PROFILE_FILE := .env.$(APP_ENV)
+USE_LOCAL_ENV ?= true
 
 # Load profile env first, then local .env overrides for developer machine.
 ifneq (,$(wildcard $(ENV_PROFILE_FILE)))
 include $(ENV_PROFILE_FILE)
 export
 endif
+ifeq ($(USE_LOCAL_ENV),true)
 ifneq (,$(wildcard .env))
 include .env
 export
+endif
 endif
 
 GO ?= go
@@ -23,7 +26,7 @@ PPROF_URL ?= http://localhost:6060/debug/pprof
 PPROF_SECONDS ?= 30
 name ?= new_migration
 
-.PHONY: help run run-dev run-stage run-prod build test tidy fmt pprof-cpu pprof-heap pprof-goroutine pprof-allocs migrate-up migrate-down migrate-version migrate-force migrate-create check-migrate
+.PHONY: help run run-dev run-stage run-prod build test tidy fmt pprof-cpu pprof-heap pprof-goroutine pprof-allocs migrate-up migrate-down migrate-version migrate-force migrate-create check-migrate fly-secrets fly-deploy
 
 help:
 	@echo "Available targets:"
@@ -45,6 +48,8 @@ help:
 	@echo "  make migrate-version - show current migration version"
 	@echo "  make migrate-force version=1 - force migration version"
 	@echo "  make migrate-create name=add_table - create new migration files"
+	@echo "  make fly-secrets     - set Fly secrets from env (FLY_APP required)"
+	@echo "  make fly-deploy      - deploy to Fly (FLY_APP required)"
 
 run:
 	@echo "Running with APP_ENV=$(APP_ENV)"
@@ -108,3 +113,21 @@ migrate-force: check-migrate
 
 migrate-create: check-migrate
 	migrate create -ext sql -dir $(MIGRATIONS_DIR) -seq $(name)
+
+fly-secrets:
+	@test -n "$$FLY_APP" || (echo "FLY_APP is required (e.g. export FLY_APP=fantasy-league-rw84mq)"; exit 1)
+	@test -n "$$DB_URL" || (echo "DB_URL is required"; exit 1)
+	@test -n "$$ANUBIS_BASE_URL" || (echo "ANUBIS_BASE_URL is required"; exit 1)
+	@test -n "$$ANUBIS_ADMIN_KEY" || (echo "ANUBIS_ADMIN_KEY is required"; exit 1)
+	@cmd=(fly secrets set -a "$$FLY_APP" \
+		"DB_URL=$$DB_URL" \
+		"ANUBIS_BASE_URL=$$ANUBIS_BASE_URL" \
+		"ANUBIS_ADMIN_KEY=$$ANUBIS_ADMIN_KEY"); \
+	if [ -n "$$UPTRACE_DSN" ]; then cmd+=("UPTRACE_DSN=$$UPTRACE_DSN"); fi; \
+	if [ -n "$$PYROSCOPE_SERVER_ADDRESS" ]; then cmd+=("PYROSCOPE_SERVER_ADDRESS=$$PYROSCOPE_SERVER_ADDRESS"); fi; \
+	if [ -n "$$PYROSCOPE_AUTH_TOKEN" ]; then cmd+=("PYROSCOPE_AUTH_TOKEN=$$PYROSCOPE_AUTH_TOKEN"); fi; \
+	"$${cmd[@]}"
+
+fly-deploy:
+	@test -n "$$FLY_APP" || (echo "FLY_APP is required (e.g. export FLY_APP=fantasy-league-rw84mq)"; exit 1)
+	fly deploy -a "$$FLY_APP"
