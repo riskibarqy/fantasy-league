@@ -48,12 +48,69 @@ WHERE user_id = $1
 		UpdatedAt                 time.Time      `db:"updated_at"`
 	}
 	if err := r.db.GetContext(ctx, &row, query, userID, leagueID); err != nil {
+		if isBindParameterMismatch(err) {
+			return r.getByUserAndLeagueSingleParam(ctx, userID, leagueID)
+		}
 		if isNotFound(err) {
 			return lineup.Lineup{}, false, nil
 		}
 		return lineup.Lineup{}, false, fmt.Errorf("get lineup: %w", err)
 	}
 
+	return lineupFromRow(row), true, nil
+}
+
+func (r *LineupRepository) getByUserAndLeagueSingleParam(ctx context.Context, userID, leagueID string) (lineup.Lineup, bool, error) {
+	const query = `
+SELECT user_id,
+       league_public_id,
+       goalkeeper_player_public_id,
+       defender_player_ids,
+       midfielder_player_ids,
+       forward_player_ids,
+       substitute_player_ids,
+       captain_player_public_id,
+       vice_captain_player_public_id,
+       updated_at
+FROM lineups
+WHERE user_id = ($1::text[])[1]
+  AND league_public_id = ($1::text[])[2]
+  AND deleted_at IS NULL`
+
+	var row struct {
+		UserID                    string         `db:"user_id"`
+		LeaguePublicID            string         `db:"league_public_id"`
+		GoalkeeperPlayerPublicID  string         `db:"goalkeeper_player_public_id"`
+		DefenderPlayerIDs         pq.StringArray `db:"defender_player_ids"`
+		MidfielderPlayerIDs       pq.StringArray `db:"midfielder_player_ids"`
+		ForwardPlayerIDs          pq.StringArray `db:"forward_player_ids"`
+		SubstitutePlayerIDs       pq.StringArray `db:"substitute_player_ids"`
+		CaptainPlayerPublicID     string         `db:"captain_player_public_id"`
+		ViceCaptainPlayerPublicID string         `db:"vice_captain_player_public_id"`
+		UpdatedAt                 time.Time      `db:"updated_at"`
+	}
+	if err := r.db.GetContext(ctx, &row, query, pq.Array([]string{userID, leagueID})); err != nil {
+		if isNotFound(err) {
+			return lineup.Lineup{}, false, nil
+		}
+		return lineup.Lineup{}, false, fmt.Errorf("get lineup fallback: %w", err)
+	}
+
+	return lineupFromRow(row), true, nil
+}
+
+func lineupFromRow(row struct {
+	UserID                    string         `db:"user_id"`
+	LeaguePublicID            string         `db:"league_public_id"`
+	GoalkeeperPlayerPublicID  string         `db:"goalkeeper_player_public_id"`
+	DefenderPlayerIDs         pq.StringArray `db:"defender_player_ids"`
+	MidfielderPlayerIDs       pq.StringArray `db:"midfielder_player_ids"`
+	ForwardPlayerIDs          pq.StringArray `db:"forward_player_ids"`
+	SubstitutePlayerIDs       pq.StringArray `db:"substitute_player_ids"`
+	CaptainPlayerPublicID     string         `db:"captain_player_public_id"`
+	ViceCaptainPlayerPublicID string         `db:"vice_captain_player_public_id"`
+	UpdatedAt                 time.Time      `db:"updated_at"`
+}) lineup.Lineup {
 	return lineup.Lineup{
 		UserID:        row.UserID,
 		LeagueID:      row.LeaguePublicID,
@@ -65,7 +122,7 @@ WHERE user_id = $1
 		CaptainID:     row.CaptainPlayerPublicID,
 		ViceCaptainID: row.ViceCaptainPlayerPublicID,
 		UpdatedAt:     row.UpdatedAt,
-	}, true, nil
+	}
 }
 
 func (r *LineupRepository) Upsert(ctx context.Context, item lineup.Lineup) error {
