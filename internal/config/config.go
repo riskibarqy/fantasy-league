@@ -16,6 +16,7 @@ type Config struct {
 	ServiceVersion              string
 	HTTPAddr                    string
 	DBURL                       string
+	DBDisablePreparedBinary     bool
 	CORSAllowedOrigins          []string
 	ReadTimeout                 time.Duration
 	WriteTimeout                time.Duration
@@ -99,6 +100,7 @@ func Load() (Config, error) {
 		ServiceVersion:             getEnv("APP_SERVICE_VERSION", "dev"),
 		HTTPAddr:                   getEnv("APP_HTTP_ADDR", ":8080"),
 		DBURL:                      getEnv("DB_URL", "postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable"),
+		DBDisablePreparedBinary:    true,
 		CORSAllowedOrigins:         splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "*")),
 		PprofEnabled:               pprofEnabled,
 		PprofAddr:                  pprofAddr,
@@ -122,6 +124,12 @@ func Load() (Config, error) {
 	if len(cfg.CORSAllowedOrigins) == 0 {
 		return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS cannot be empty")
 	}
+
+	dbDisablePreparedBinary, err := strconv.ParseBool(getEnv("DB_DISABLE_PREPARED_BINARY_RESULT", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse DB_DISABLE_PREPARED_BINARY_RESULT: %w", err)
+	}
+	cfg.DBDisablePreparedBinary = dbDisablePreparedBinary
 
 	readTimeout, err := time.ParseDuration(getEnv("APP_READ_TIMEOUT", "10s"))
 	if err != nil {

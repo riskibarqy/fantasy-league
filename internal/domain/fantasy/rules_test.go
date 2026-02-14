@@ -101,3 +101,33 @@ func TestValidatePicks(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePicksPartial(t *testing.T) {
+	rules := DefaultRules()
+	picks := []SquadPick{
+		{PlayerID: "p1", TeamID: "t1", Position: player.PositionGoalkeeper, Price: 80},
+		{PlayerID: "p2", TeamID: "t1", Position: player.PositionDefender, Price: 80},
+		{PlayerID: "p3", TeamID: "t2", Position: player.PositionDefender, Price: 80},
+	}
+
+	if err := ValidatePicksPartial(picks, rules); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	picks = append(picks, SquadPick{
+		PlayerID: "p4",
+		TeamID:   "t1",
+		Position: player.PositionMidfielder,
+		Price:    80,
+	})
+	picks = append(picks, SquadPick{
+		PlayerID: "p5",
+		TeamID:   "t1",
+		Position: player.PositionForward,
+		Price:    80,
+	})
+	err := ValidatePicksPartial(picks, rules)
+	if !errors.Is(err, ErrExceededTeamLimit) {
+		t.Fatalf("expected ErrExceededTeamLimit, got %v", err)
+	}
+}

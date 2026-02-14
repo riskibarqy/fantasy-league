@@ -133,6 +133,32 @@ paths:
       responses:
         '200':
           description: Squad upserted
+  /v1/fantasy/squads/picks:
+    post:
+      summary: Pick authenticated squad
+      description: Create or update current user's squad picks. `squad_name` is optional.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                league_id:
+                  type: string
+                squad_name:
+                  type: string
+                  description: Optional. When empty, existing squad name is reused or defaults to "My Squad".
+                player_ids:
+                  type: array
+                  items:
+                    type: string
+              required: [league_id, player_ids]
+      responses:
+        '200':
+          description: Squad picked
   /v1/fantasy/squads/me:
     get:
       summary: Get authenticated squad
@@ -147,6 +173,42 @@ paths:
       responses:
         '200':
           description: Squad payload
+  /v1/fantasy/squads/me/players:
+    get:
+      summary: List league players with in-squad flag for authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: league_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Players list for squad management
+    post:
+      summary: Add one player to authenticated squad
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                league_id:
+                  type: string
+                squad_name:
+                  type: string
+                  description: Optional. When empty, existing squad name is reused or defaults to "My Squad".
+                player_id:
+                  type: string
+              required: [league_id, player_id]
+      responses:
+        '200':
+          description: Updated squad payload
 components:
   securitySchemes:
     bearerAuth:

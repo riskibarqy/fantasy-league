@@ -21,6 +21,26 @@ type UpsertSquadInput struct {
 	PlayerIDs []string
 }
 
+// PickSquadInput is the incoming payload for squad picking API.
+// SquadName is optional:
+// - when empty and squad exists, existing name is reused
+// - when empty and squad does not exist, a default name is used
+type PickSquadInput struct {
+	UserID    string
+	LeagueID  string
+	SquadName string
+	PlayerIDs []string
+}
+
+type AddPlayerToSquadInput struct {
+	UserID    string
+	LeagueID  string
+	SquadName string
+	PlayerID  string
+}
+
+const defaultSquadName = "My Squad"
+
 type SquadService struct {
 	leagueRepo league.Repository
 	playerRepo player.Repository
@@ -151,6 +171,143 @@ func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) 
 		"user_id", input.UserID,
 		"league_id", input.LeagueID,
 		"squad_id", squad.ID,
+		"player_count", len(squad.Picks),
+	)
+
+	return squad, nil
+}
+
+func (s *SquadService) PickSquad(ctx context.Context, input PickSquadInput) (fantasy.Squad, error) {
+	input.UserID = strings.TrimSpace(input.UserID)
+	input.LeagueID = strings.TrimSpace(input.LeagueID)
+	input.SquadName = strings.TrimSpace(input.SquadName)
+
+	if input.UserID == "" {
+		return fantasy.Squad{}, fmt.Errorf("%w: user id is required", ErrInvalidInput)
+	}
+	if input.LeagueID == "" {
+		return fantasy.Squad{}, fmt.Errorf("%w: league id is required", ErrInvalidInput)
+	}
+	if len(input.PlayerIDs) == 0 {
+		return fantasy.Squad{}, fmt.Errorf("%w: player ids are required", ErrInvalidInput)
+	}
+
+	name := input.SquadName
+	if name == "" {
+		existing, exists, err := s.squadRepo.GetByUserAndLeague(ctx, input.UserID, input.LeagueID)
+		if err != nil {
+			return fantasy.Squad{}, fmt.Errorf("get existing squad for pick: %w", err)
+		}
+		if exists && strings.TrimSpace(existing.Name) != "" {
+			name = strings.TrimSpace(existing.Name)
+		} else {
+			name = defaultSquadName
+		}
+	}
+
+	return s.UpsertSquad(ctx, UpsertSquadInput{
+		UserID:    input.UserID,
+		LeagueID:  input.LeagueID,
+		Name:      name,
+		PlayerIDs: input.PlayerIDs,
+	})
+}
+
+func (s *SquadService) AddPlayerToSquad(ctx context.Context, input AddPlayerToSquadInput) (fantasy.Squad, error) {
+	input.UserID = strings.TrimSpace(input.UserID)
+	input.LeagueID = strings.TrimSpace(input.LeagueID)
+	input.SquadName = strings.TrimSpace(input.SquadName)
+	input.PlayerID = strings.TrimSpace(input.PlayerID)
+
+	if input.UserID == "" {
+		return fantasy.Squad{}, fmt.Errorf("%w: user id is required", ErrInvalidInput)
+	}
+	if input.LeagueID == "" {
+		return fantasy.Squad{}, fmt.Errorf("%w: league id is required", ErrInvalidInput)
+	}
+	if input.PlayerID == "" {
+		return fantasy.Squad{}, fmt.Errorf("%w: player id is required", ErrInvalidInput)
+	}
+
+	if err := s.validateLeague(ctx, input.LeagueID); err != nil {
+		return fantasy.Squad{}, err
+	}
+
+	players, err := s.playerRepo.GetByIDs(ctx, input.LeagueID, []string{input.PlayerID})
+	if err != nil {
+		return fantasy.Squad{}, fmt.Errorf("get player by id: %w", err)
+	}
+	if len(players) != 1 {
+		return fantasy.Squad{}, fmt.Errorf("%w: player=%s league=%s", ErrNotFound, input.PlayerID, input.LeagueID)
+	}
+	selected := players[0]
+
+	existing, exists, err := s.squadRepo.GetByUserAndLeague(ctx, input.UserID, input.LeagueID)
+	if err != nil {
+		return fantasy.Squad{}, fmt.Errorf("get existing squad: %w", err)
+	}
+
+	picks := make([]fantasy.SquadPick, 0, len(existing.Picks)+1)
+	picks = append(picks, existing.Picks...)
+	for _, p := range existing.Picks {
+		if p.PlayerID == input.PlayerID {
+			return fantasy.Squad{}, fmt.Errorf("%w: duplicate player id %s", ErrInvalidInput, input.PlayerID)
+		}
+	}
+	picks = append(picks, fantasy.SquadPick{
+		PlayerID: selected.ID,
+		TeamID:   selected.TeamID,
+		Position: selected.Position,
+		Price:    selected.Price,
+	})
+
+	if err := fantasy.ValidatePicksPartial(picks, s.rules); err != nil {
+		return fantasy.Squad{}, fmt.Errorf("validate squad picks: %w", err)
+	}
+
+	name := input.SquadName
+	if name == "" {
+		if exists && strings.TrimSpace(existing.Name) != "" {
+			name = strings.TrimSpace(existing.Name)
+		} else {
+			name = defaultSquadName
+		}
+	}
+
+	now := s.now().UTC()
+	squadID := existing.ID
+	createdAt := existing.CreatedAt
+	if !exists {
+		squadID, err = s.idGen.NewID()
+		if err != nil {
+			return fantasy.Squad{}, fmt.Errorf("generate squad id: %w", err)
+		}
+		createdAt = now
+	}
+
+	squad := fantasy.Squad{
+		ID:        squadID,
+		UserID:    input.UserID,
+		LeagueID:  input.LeagueID,
+		Name:      name,
+		Picks:     picks,
+		BudgetCap: s.rules.BudgetCap,
+		CreatedAt: createdAt,
+		UpdatedAt: now,
+	}
+
+	if err := squad.ValidateBasic(); err != nil {
+		return fantasy.Squad{}, fmt.Errorf("validate squad: %w", err)
+	}
+	if err := s.squadRepo.Upsert(ctx, squad); err != nil {
+		return fantasy.Squad{}, fmt.Errorf("upsert squad: %w", err)
+	}
+
+	s.logger.InfoContext(ctx, "player added to squad",
+		"user_id", input.UserID,
+		"league_id", input.LeagueID,
+		"squad_id", squad.ID,
+		"player_id", input.PlayerID,
 		"player_count", len(squad.Picks),
 	)
 

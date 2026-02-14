@@ -88,3 +88,51 @@ func ValidatePicks(picks []SquadPick, rules Rules) error {
 
 	return nil
 }
+
+// ValidatePicksPartial validates draft picks while user builds squad incrementally.
+// It does not require exact squad size or minimum formation constraints yet.
+func ValidatePicksPartial(picks []SquadPick, rules Rules) error {
+	if len(picks) == 0 {
+		return fmt.Errorf("%w: expected at least 1, got 0", ErrInvalidSquadSize)
+	}
+	if len(picks) > rules.SquadSize {
+		return fmt.Errorf("%w: expected at most %d, got %d", ErrInvalidSquadSize, rules.SquadSize, len(picks))
+	}
+
+	teamCounter := make(map[string]int)
+	playerSet := make(map[string]struct{})
+	var totalCost int64
+
+	for _, pick := range picks {
+		if pick.PlayerID == "" {
+			return fmt.Errorf("player id is required")
+		}
+		if _, exists := playerSet[pick.PlayerID]; exists {
+			return fmt.Errorf("%w: %s", ErrDuplicatePlayerInSquad, pick.PlayerID)
+		}
+		playerSet[pick.PlayerID] = struct{}{}
+
+		if _, ok := player.AllPositions[pick.Position]; !ok {
+			return fmt.Errorf("%w: %s", ErrUnknownPlayerPosition, pick.Position)
+		}
+		if pick.TeamID == "" {
+			return fmt.Errorf("team id is required for player %s", pick.PlayerID)
+		}
+		if pick.Price <= 0 {
+			return fmt.Errorf("player price must be greater than zero: %s", pick.PlayerID)
+		}
+
+		teamCounter[pick.TeamID]++
+		if teamCounter[pick.TeamID] > rules.MaxPlayersPerTeam {
+			return fmt.Errorf("%w: team=%s max=%d", ErrExceededTeamLimit, pick.TeamID, rules.MaxPlayersPerTeam)
+		}
+
+		totalCost += pick.Price
+	}
+
+	if totalCost > rules.BudgetCap {
+		return fmt.Errorf("%w: cap=%d used=%d", ErrExceededBudget, rules.BudgetCap, totalCost)
+	}
+
+	return nil
+}

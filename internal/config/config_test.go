@@ -126,3 +126,26 @@ func TestLoad_CORSOriginsDefaultAndParsing(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_DBDisablePreparedBinaryResultParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+
+	t.Run("default true", func(t *testing.T) {
+		t.Setenv("DB_DISABLE_PREPARED_BINARY_RESULT", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.DBDisablePreparedBinary {
+			t.Fatalf("expected DBDisablePreparedBinary=true by default")
+		}
+	})
+
+	t.Run("invalid value", func(t *testing.T) {
+		t.Setenv("DB_DISABLE_PREPARED_BINARY_RESULT", "not-bool")
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error for invalid DB_DISABLE_PREPARED_BINARY_RESULT")
+		}
+	})
+}

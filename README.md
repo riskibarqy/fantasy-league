@@ -247,7 +247,10 @@ Configured files:
 - `GET /v1/leagues/{leagueID}/lineup`
 - `PUT /v1/leagues/{leagueID}/lineup`
 - `POST /v1/fantasy/squads` (Bearer token required)
+- `POST /v1/fantasy/squads/picks` (Bearer token required)
 - `GET /v1/fantasy/squads/me?league_id=<id>` (Bearer token required)
+- `GET /v1/fantasy/squads/me/players?league_id=<id>` (Bearer token required)
+- `POST /v1/fantasy/squads/me/players` (Bearer token required)
 
 Note:
 - Current lineup endpoints are bound to an internal demo user (`demo-manager`) to match FE integration path while auth wiring is finalized.

@@ -126,3 +126,115 @@ func TestSquadService_UpsertSquad_InvalidInput(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestSquadService_PickSquad_DefaultAndReuseName(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	squadRepo := memory.NewSquadRepository()
+
+	service := NewSquadService(
+		leagueRepo,
+		playerRepo,
+		squadRepo,
+		fantasy.DefaultRules(),
+		staticIDGenerator{id: "squad-001"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+
+	playerIDs := []string{
+		"idn-gk-02",
+		"idn-def-04",
+		"idn-def-05",
+		"idn-def-01",
+		"idn-mid-06",
+		"idn-mid-05",
+		"idn-mid-03",
+		"idn-mid-04",
+		"idn-fwd-03",
+		"idn-fwd-01",
+		"idn-fwd-02",
+	}
+
+	created, err := service.PickSquad(t.Context(), PickSquadInput{
+		UserID:    "user-1",
+		LeagueID:  memory.LeagueIDLiga1Indonesia,
+		PlayerIDs: playerIDs,
+	})
+	if err != nil {
+		t.Fatalf("pick squad create failed: %v", err)
+	}
+	if created.Name != defaultSquadName {
+		t.Fatalf("expected default squad name %q, got %q", defaultSquadName, created.Name)
+	}
+
+	updated, err := service.PickSquad(t.Context(), PickSquadInput{
+		UserID:    "user-1",
+		LeagueID:  memory.LeagueIDLiga1Indonesia,
+		PlayerIDs: playerIDs,
+	})
+	if err != nil {
+		t.Fatalf("pick squad update failed: %v", err)
+	}
+	if updated.Name != defaultSquadName {
+		t.Fatalf("expected existing squad name %q to be reused, got %q", defaultSquadName, updated.Name)
+	}
+}
+
+func TestSquadService_AddPlayerToSquad(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	squadRepo := memory.NewSquadRepository()
+
+	service := NewSquadService(
+		leagueRepo,
+		playerRepo,
+		squadRepo,
+		fantasy.DefaultRules(),
+		staticIDGenerator{id: "squad-001"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+
+	squad, err := service.AddPlayerToSquad(t.Context(), AddPlayerToSquadInput{
+		UserID:   "user-1",
+		LeagueID: memory.LeagueIDLiga1Indonesia,
+		PlayerID: "idn-gk-02",
+	})
+	if err != nil {
+		t.Fatalf("add first player failed: %v", err)
+	}
+	if len(squad.Picks) != 1 {
+		t.Fatalf("expected 1 pick, got %d", len(squad.Picks))
+	}
+	if squad.Name != defaultSquadName {
+		t.Fatalf("expected default squad name %q, got %q", defaultSquadName, squad.Name)
+	}
+
+	_, err = service.AddPlayerToSquad(t.Context(), AddPlayerToSquadInput{
+		UserID:   "user-1",
+		LeagueID: memory.LeagueIDLiga1Indonesia,
+		PlayerID: "idn-gk-02",
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for duplicate add, got %v", err)
+	}
+
+	for _, playerID := range []string{"idn-def-02", "idn-mid-06"} {
+		_, err = service.AddPlayerToSquad(t.Context(), AddPlayerToSquadInput{
+			UserID:   "user-1",
+			LeagueID: memory.LeagueIDLiga1Indonesia,
+			PlayerID: playerID,
+		})
+		if err != nil {
+			t.Fatalf("unexpected add player failure for %s: %v", playerID, err)
+		}
+	}
+
+	_, err = service.AddPlayerToSquad(t.Context(), AddPlayerToSquadInput{
+		UserID:   "user-1",
+		LeagueID: memory.LeagueIDLiga1Indonesia,
+		PlayerID: "idn-fwd-02",
+	})
+	if !errors.Is(err, fantasy.ErrExceededTeamLimit) {
+		t.Fatalf("expected ErrExceededTeamLimit, got %v", err)
+	}
+}

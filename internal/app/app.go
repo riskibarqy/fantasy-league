@@ -19,7 +19,7 @@ import (
 )
 
 func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func() error, error) {
-	db, err := sqlx.Open("postgres", cfg.DBURL)
+	db, err := sqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open postgres connection: %w", err)
 	}

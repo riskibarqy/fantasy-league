@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -158,6 +159,78 @@ func (h *Handler) ListPlayersByLeague(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(ctx, w, http.StatusOK, items)
 }
 
+func (h *Handler) ListMySquadPlayers(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.ListMySquadPlayers")
+	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
+	leagueID := strings.TrimSpace(r.URL.Query().Get("league_id"))
+	if err := h.validateRequest(ctx, getSquadRequest{LeagueID: leagueID}); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	players, err := h.playerService.ListPlayersByLeague(ctx, leagueID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "list players for squad failed", "league_id", leagueID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+	teams, err := h.leagueService.ListTeamsByLeague(ctx, leagueID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "list teams failed while mapping squad players", "league_id", leagueID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	teamNameByID := make(map[string]string, len(teams))
+	for _, t := range teams {
+		teamNameByID[t.ID] = t.Name
+	}
+
+	squadPlayerSet := make(map[string]struct{})
+	existingSquad, err := h.squadService.GetUserSquad(ctx, principal.UserID, leagueID)
+	if err != nil {
+		if !errors.Is(err, usecase.ErrNotFound) {
+			h.logger.WarnContext(ctx, "get squad failed while listing squad players", "user_id", principal.UserID, "league_id", leagueID, "error", err)
+			writeError(ctx, w, err)
+			return
+		}
+	} else {
+		for _, pick := range existingSquad.Picks {
+			squadPlayerSet[pick.PlayerID] = struct{}{}
+		}
+	}
+
+	items := make([]squadPlayerDTO, 0, len(players))
+	for _, p := range players {
+		_, inSquad := squadPlayerSet[p.ID]
+		club := teamNameByID[p.TeamID]
+		if strings.TrimSpace(club) == "" {
+			club = p.TeamID
+		}
+		items = append(items, squadPlayerDTO{
+			ID:              p.ID,
+			LeagueID:        p.LeagueID,
+			Name:            p.Name,
+			Club:            club,
+			Position:        string(p.Position),
+			Price:           float64(p.Price) / 10.0,
+			Form:            derivedForm(ctx, p.ID),
+			ProjectedPoints: derivedProjectedPoints(ctx, p.ID),
+			IsInjured:       isInjured(ctx, p.ID),
+			InSquad:         inSquad,
+		})
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, items)
+}
+
 func (h *Handler) ListFixturesByLeague(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.ListFixturesByLeague")
 	defer span.End()
@@ -279,6 +352,80 @@ func (h *Handler) UpsertSquad(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(ctx, w, http.StatusOK, squadToDTO(ctx, squad))
 }
 
+func (h *Handler) PickSquad(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.PickSquad")
+	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
+	var req pickSquadRequest
+	decoder := jsoniter.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	squad, err := h.squadService.PickSquad(ctx, usecase.PickSquadInput{
+		UserID:    principal.UserID,
+		LeagueID:  req.LeagueID,
+		SquadName: req.SquadName,
+		PlayerIDs: req.PlayerIDs,
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx, "pick squad failed", "user_id", principal.UserID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, squadToDTO(ctx, squad))
+}
+
+func (h *Handler) AddPlayerToMySquad(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.AddPlayerToMySquad")
+	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
+	var req addPlayerToSquadRequest
+	decoder := jsoniter.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	squad, err := h.squadService.AddPlayerToSquad(ctx, usecase.AddPlayerToSquadInput{
+		UserID:    principal.UserID,
+		LeagueID:  req.LeagueID,
+		SquadName: req.SquadName,
+		PlayerID:  req.PlayerID,
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx, "add player to squad failed", "user_id", principal.UserID, "league_id", req.LeagueID, "player_id", req.PlayerID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, squadToDTO(ctx, squad))
+}
+
 func (h *Handler) GetMySquad(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.GetMySquad")
 	defer span.End()
@@ -320,6 +467,18 @@ type upsertSquadRequest struct {
 	LeagueID  string   `json:"league_id" validate:"required"`
 	SquadName string   `json:"squad_name" validate:"required,max=100"`
 	PlayerIDs []string `json:"player_ids" validate:"required,min=1,dive,required"`
+}
+
+type pickSquadRequest struct {
+	LeagueID  string   `json:"league_id" validate:"required"`
+	SquadName string   `json:"squad_name" validate:"omitempty,max=100"`
+	PlayerIDs []string `json:"player_ids" validate:"required,min=1,dive,required"`
+}
+
+type addPlayerToSquadRequest struct {
+	LeagueID  string `json:"league_id" validate:"required"`
+	SquadName string `json:"squad_name" validate:"omitempty,max=100"`
+	PlayerID  string `json:"player_id" validate:"required"`
 }
 
 type lineupUpsertRequest struct {
@@ -371,6 +530,19 @@ type playerPublicDTO struct {
 	Form            float64 `json:"form"`
 	ProjectedPoints float64 `json:"projectedPoints"`
 	IsInjured       bool    `json:"isInjured"`
+}
+
+type squadPlayerDTO struct {
+	ID              string  `json:"id"`
+	LeagueID        string  `json:"leagueId"`
+	Name            string  `json:"name"`
+	Club            string  `json:"club"`
+	Position        string  `json:"position"`
+	Price           float64 `json:"price"`
+	Form            float64 `json:"form"`
+	ProjectedPoints float64 `json:"projectedPoints"`
+	IsInjured       bool    `json:"isInjured"`
+	InSquad         bool    `json:"inSquad"`
 }
 
 type fixtureDTO struct {
@@ -502,6 +674,23 @@ func derivedPlayerMetrics(ctx context.Context, playerID string) (float64, float6
 	form := 5.0 + float64(base%45)/10.0
 	projected := 3.0 + float64(hash(ctx, playerID+"-proj")%80)/10.0
 	return round1(ctx, form), round1(ctx, projected)
+}
+
+func derivedForm(ctx context.Context, playerID string) float64 {
+	ctx, span := startSpan(ctx, "httpapi.derivedForm")
+	defer span.End()
+
+	base := hash(ctx, playerID)
+	form := 5.0 + float64(base%45)/10.0
+	return round1(ctx, form)
+}
+
+func derivedProjectedPoints(ctx context.Context, playerID string) float64 {
+	ctx, span := startSpan(ctx, "httpapi.derivedProjectedPoints")
+	defer span.End()
+
+	projected := 3.0 + float64(hash(ctx, playerID+"-proj")%80)/10.0
+	return round1(ctx, projected)
 }
 
 func isInjured(ctx context.Context, playerID string) bool {
