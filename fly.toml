@@ -1,41 +1,23 @@
-app = "fantasy-league-rw84mq"
-primary_region = "sin"
+# fly.toml app configuration file generated for fantasy-league on 2026-02-14T15:40:04Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'fantasy-league'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
-
-[env]
-  APP_ENV = "prod"
-  APP_HTTP_ADDR = "0.0.0.0:8080"
-  APP_LOG_LEVEL = "info"
-  SWAGGER_ENABLED = "false"
-  UPTRACE_ENABLED = "false"
-  PPROF_ENABLED = "false"
-  PYROSCOPE_ENABLED = "false"
-  GOMAXPROCS = "1"
-  GOMEMLIMIT = "220MiB"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-
-  [http_service.concurrency]
-    type = "connections"
-    soft_limit = 20
-    hard_limit = 25
-
-  [[http_service.checks]]
-    type = "http"
-    interval = "15s"
-    timeout = "2s"
-    grace_period = "15s"
-    method = "GET"
-    path = "/healthz"
+  processes = ['app']
 
 [[vm]]
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
