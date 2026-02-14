@@ -93,3 +93,36 @@ func TestLoad_PyroscopeAppNameDefaultsToServiceName(t *testing.T) {
 		t.Fatalf("unexpected pyroscope app name: %q", cfg.PyroscopeAppName)
 	}
 }
+
+func TestLoad_CORSOriginsDefaultAndParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+
+	t.Run("default wildcard", func(t *testing.T) {
+		t.Setenv("CORS_ALLOWED_ORIGINS", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "*" {
+			t.Fatalf("unexpected default CORS origins: %+v", cfg.CORSAllowedOrigins)
+		}
+	})
+
+	t.Run("comma separated parsing", func(t *testing.T) {
+		t.Setenv("CORS_ALLOWED_ORIGINS", " https://a.example.com, http://localhost:5173 ")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.CORSAllowedOrigins) != 2 {
+			t.Fatalf("unexpected CORS origins length: %d", len(cfg.CORSAllowedOrigins))
+		}
+		if cfg.CORSAllowedOrigins[0] != "https://a.example.com" {
+			t.Fatalf("unexpected first CORS origin: %s", cfg.CORSAllowedOrigins[0])
+		}
+		if cfg.CORSAllowedOrigins[1] != "http://localhost:5173" {
+			t.Fatalf("unexpected second CORS origin: %s", cfg.CORSAllowedOrigins[1])
+		}
+	})
+}

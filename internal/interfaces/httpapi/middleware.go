@@ -80,3 +80,53 @@ func RequestTracing(next http.Handler) http.Handler {
 		}),
 	)
 }
+
+func CORS(allowedOrigins []string, next http.Handler) http.Handler {
+	allowAll := false
+	allowMap := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		candidate := strings.TrimSpace(origin)
+		if candidate == "" {
+			continue
+		}
+		if candidate == "*" {
+			allowAll = true
+			continue
+		}
+		allowMap[candidate] = struct{}{}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := startSpan(r.Context(), "httpapi.CORS")
+		defer span.End()
+
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
+		allowed := allowAll
+		if !allowed {
+			_, allowed = allowMap[origin]
+		}
+		if allowed {
+			if allowAll {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Add("Vary", "Origin")
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,Accept")
+			w.Header().Set("Access-Control-Max-Age", "600")
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}

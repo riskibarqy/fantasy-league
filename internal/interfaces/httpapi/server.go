@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, swaggerEnabled bool) http.Handler {
+func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, swaggerEnabled bool, corsAllowedOrigins []string) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -27,7 +27,7 @@ func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, sw
 	mux.Handle("POST /v1/fantasy/squads", RequireAuth(verifier, http.HandlerFunc(handler.UpsertSquad)))
 	mux.Handle("GET /v1/fantasy/squads/me", RequireAuth(verifier, http.HandlerFunc(handler.GetMySquad)))
 
-	return RequestTracing(RequestLogging(logger, recoverPanic(logger, mux)))
+	return RequestTracing(RequestLogging(logger, CORS(corsAllowedOrigins, recoverPanic(logger, mux))))
 }
 
 func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {

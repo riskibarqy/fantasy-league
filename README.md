@@ -212,6 +212,7 @@ Configured files:
 - `APP_READ_TIMEOUT` (default `10s`)
 - `APP_WRITE_TIMEOUT` (default `15s`)
 - `SWAGGER_ENABLED` (default `true`, but default `false` in prod)
+- `CORS_ALLOWED_ORIGINS` (comma-separated, default `*`)
 - `ANUBIS_BASE_URL` (default `http://localhost:8081`)
 - `ANUBIS_INTROSPECT_PATH` (default `/v1/auth/introspect`)
 - `ANUBIS_ADMIN_KEY` (default empty; required when introspect endpoint is protected by admin guard)

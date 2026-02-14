@@ -74,7 +74,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	)
 
 	handler := httpapi.NewHandler(leagueSvc, playerSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, logger)
-	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled)
+	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
 
 	return router, db.Close, nil
 }

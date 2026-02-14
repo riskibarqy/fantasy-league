@@ -16,6 +16,7 @@ type Config struct {
 	ServiceVersion              string
 	HTTPAddr                    string
 	DBURL                       string
+	CORSAllowedOrigins          []string
 	ReadTimeout                 time.Duration
 	WriteTimeout                time.Duration
 	PprofEnabled                bool
@@ -98,6 +99,7 @@ func Load() (Config, error) {
 		ServiceVersion:             getEnv("APP_SERVICE_VERSION", "dev"),
 		HTTPAddr:                   getEnv("APP_HTTP_ADDR", ":8080"),
 		DBURL:                      getEnv("DB_URL", "postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable"),
+		CORSAllowedOrigins:         splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "*")),
 		PprofEnabled:               pprofEnabled,
 		PprofAddr:                  pprofAddr,
 		SwaggerEnabled:             swaggerEnabled,
@@ -116,6 +118,9 @@ func Load() (Config, error) {
 	cfg.PyroscopeAppName = strings.TrimSpace(getEnv("PYROSCOPE_APP_NAME", cfg.ServiceName))
 	if cfg.PyroscopeEnabled && cfg.PyroscopeAppName == "" {
 		return Config{}, fmt.Errorf("PYROSCOPE_APP_NAME cannot be empty when PYROSCOPE_ENABLED=true")
+	}
+	if len(cfg.CORSAllowedOrigins) == 0 {
+		return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS cannot be empty")
 	}
 
 	readTimeout, err := time.ParseDuration(getEnv("APP_READ_TIMEOUT", "10s"))
@@ -210,6 +215,20 @@ func getEnvAsInt(key string, fallback int) (int, error) {
 	}
 
 	return out, nil
+}
+
+func splitCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+
+	return out
 }
 
 const (
