@@ -4,10 +4,12 @@ import "fmt"
 
 // Team is a real football club inside a league.
 type Team struct {
-	ID       string
-	LeagueID string
-	Name     string
-	Short    string
+	ID        string
+	LeagueID  string
+	Name      string
+	Short     string
+	ImageURL  string
+	TeamRefID int64
 }
 
 func (t Team) Validate() error {

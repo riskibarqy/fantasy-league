@@ -1,0 +1,19 @@
+{
+  "go.useLanguageServer": true,
+  "go.toolsEnvVars": {
+    "GOTOOLCHAIN": "auto",
+    "GOCACHE": "${workspaceFolder}/.cache/go-build",
+    "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+    "XDG_CACHE_HOME": "${workspaceFolder}/.cache"
+  },
+  "go.testEnvVars": {
+    "GOTOOLCHAIN": "auto",
+    "GOCACHE": "${workspaceFolder}/.cache/go-build",
+    "GOMODCACHE": "${workspaceFolder}/.cache/go-mod",
+    "XDG_CACHE_HOME": "${workspaceFolder}/.cache"
+  },
+  "[go]": {
+    "editor.defaultFormatter": "golang.go",
+    "editor.formatOnSave": true
+  }
+}

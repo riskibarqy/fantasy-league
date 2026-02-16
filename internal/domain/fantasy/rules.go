@@ -26,8 +26,8 @@ type Rules struct {
 
 func DefaultRules() Rules {
 	return Rules{
-		SquadSize:         11,
-		BudgetCap:         1000,
+		SquadSize:         15,
+		BudgetCap:         1500,
 		MaxPlayersPerTeam: 3,
 		MinByPosition: map[player.Position]int{
 			player.PositionGoalkeeper: 1,

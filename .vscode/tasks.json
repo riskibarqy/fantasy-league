@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run API (dev profile)",
+      "type": "shell",
+      "command": "make APP_ENV=dev USE_LOCAL_ENV=false run",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test All",
+      "type": "shell",
+      "command": "make test",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build API",
+      "type": "shell",
+      "command": "make build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Migrate Up (dev profile)",
+      "type": "shell",
+      "command": "make APP_ENV=dev USE_LOCAL_ENV=false migrate-up",
+      "problemMatcher": []
+    }
+  ]
+}

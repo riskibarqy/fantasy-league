@@ -6,6 +6,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
+	qb "github.com/riskibarqy/fantasy-league/internal/platform/querybuilder"
 )
 
 type LeagueRepository struct {
@@ -17,20 +18,16 @@ func NewLeagueRepository(db *sqlx.DB) *LeagueRepository {
 }
 
 func (r *LeagueRepository) List(ctx context.Context) ([]league.League, error) {
-	const query = `
-SELECT public_id, name, country_code, season, is_default
-FROM leagues
-WHERE deleted_at IS NULL
-ORDER BY id`
-
-	var rows []struct {
-		PublicID    string `db:"public_id"`
-		Name        string `db:"name"`
-		CountryCode string `db:"country_code"`
-		Season      string `db:"season"`
-		IsDefault   bool   `db:"is_default"`
+	query, args, err := qb.Select("*").From("leagues").
+		Where(qb.IsNull("deleted_at")).
+		OrderBy("id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build select leagues query: %w", err)
 	}
-	if err := r.db.SelectContext(ctx, &rows, query); err != nil {
+
+	var rows []leagueTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("select leagues: %w", err)
 	}
 
@@ -49,20 +46,18 @@ ORDER BY id`
 }
 
 func (r *LeagueRepository) GetByID(ctx context.Context, leagueID string) (league.League, bool, error) {
-	const query = `
-SELECT public_id, name, country_code, season, is_default
-FROM leagues
-WHERE public_id = $1
-  AND deleted_at IS NULL`
-
-	var row struct {
-		PublicID    string `db:"public_id"`
-		Name        string `db:"name"`
-		CountryCode string `db:"country_code"`
-		Season      string `db:"season"`
-		IsDefault   bool   `db:"is_default"`
+	query, args, err := qb.Select("*").From("leagues").
+		Where(
+			qb.Eq("public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return league.League{}, false, fmt.Errorf("build get league by id query: %w", err)
 	}
-	if err := r.db.GetContext(ctx, &row, query, leagueID); err != nil {
+
+	var row leagueTableModel
+	if err := r.db.GetContext(ctx, &row, query, args...); err != nil {
 		if isNotFound(err) {
 			return league.League{}, false, nil
 		}

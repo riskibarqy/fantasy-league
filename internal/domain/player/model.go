@@ -21,12 +21,14 @@ var AllPositions = map[Position]struct{}{
 
 // Player is a selectable athlete in a fantasy league pool.
 type Player struct {
-	ID       string
-	LeagueID string
-	TeamID   string
-	Name     string
-	Position Position
-	Price    int64
+	ID          string
+	LeagueID    string
+	TeamID      string
+	Name        string
+	Position    Position
+	Price       int64
+	ImageURL    string
+	PlayerRefID int64
 }
 
 func (p Player) Validate() error {

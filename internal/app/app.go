@@ -10,10 +10,19 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/riskibarqy/fantasy-league/internal/config"
+	customleaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/customleague"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
+	fixturedomain "github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	leaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/league"
+	lineupdomain "github.com/riskibarqy/fantasy-league/internal/domain/lineup"
+	playerdomain "github.com/riskibarqy/fantasy-league/internal/domain/player"
+	playerstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
+	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
 	"github.com/riskibarqy/fantasy-league/internal/infrastructure/account/anubis"
+	cacherepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/cache"
 	postgresrepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/postgres"
 	"github.com/riskibarqy/fantasy-league/internal/interfaces/httpapi"
+	basecache "github.com/riskibarqy/fantasy-league/internal/platform/cache"
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -31,25 +40,34 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		return nil, nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	seedCtx, seedCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer seedCancel()
-	if err := postgresrepo.BootstrapSeed(seedCtx, db); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("bootstrap seed data: %w", err)
-	}
+	var leagueRepo leaguedomain.Repository = postgresrepo.NewLeagueRepository(db)
+	var teamRepo teamdomain.Repository = postgresrepo.NewTeamRepository(db)
+	var playerRepo playerdomain.Repository = postgresrepo.NewPlayerRepository(db)
+	var fixtureRepo fixturedomain.Repository = postgresrepo.NewFixtureRepository(db)
+	var lineupRepo lineupdomain.Repository = postgresrepo.NewLineupRepository(db)
+	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
+	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
+	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 
-	leagueRepo := postgresrepo.NewLeagueRepository(db)
-	teamRepo := postgresrepo.NewTeamRepository(db)
-	playerRepo := postgresrepo.NewPlayerRepository(db)
-	fixtureRepo := postgresrepo.NewFixtureRepository(db)
-	lineupRepo := postgresrepo.NewLineupRepository(db)
-	squadRepo := postgresrepo.NewSquadRepository(db)
+	if cfg.CacheEnabled {
+		cacheStore := basecache.NewStore(cfg.CacheTTL)
+		leagueRepo = cacherepo.NewLeagueRepository(leagueRepo, cacheStore)
+		teamRepo = cacherepo.NewTeamRepository(teamRepo, cacheStore)
+		playerRepo = cacherepo.NewPlayerRepository(playerRepo, cacheStore)
+		fixtureRepo = cacherepo.NewFixtureRepository(fixtureRepo, cacheStore)
+		lineupRepo = cacherepo.NewLineupRepository(lineupRepo, cacheStore)
+		squadRepo = cacherepo.NewSquadRepository(squadRepo, cacheStore)
+		playerStatsRepo = cacherepo.NewPlayerStatsRepository(playerStatsRepo, cacheStore)
+		customLeagueRepo = cacherepo.NewCustomLeagueRepository(customLeagueRepo, cacheStore)
+	}
 
 	leagueSvc := usecase.NewLeagueService(leagueRepo, teamRepo)
 	playerSvc := usecase.NewPlayerService(leagueRepo, playerRepo)
+	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
-	lineupSvc := usecase.NewLineupService(leagueRepo, playerRepo, lineupRepo)
+	lineupSvc := usecase.NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
 	dashboardSvc := usecase.NewDashboardService(leagueRepo, playerRepo, fixtureRepo, lineupRepo)
+	customLeagueSvc := usecase.NewCustomLeagueService(leagueRepo, squadRepo, customLeagueRepo, idgen.NewRandomGenerator())
 	squadSvc := usecase.NewSquadService(
 		leagueRepo,
 		playerRepo,
@@ -58,6 +76,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		idgen.NewRandomGenerator(),
 		logger,
 	)
+	squadSvc.SetDefaultLeagueJoiner(customLeagueSvc)
 
 	anubisClient := anubis.NewClient(
 		&http.Client{Timeout: cfg.AnubisTimeout},
@@ -73,7 +92,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 
-	handler := httpapi.NewHandler(leagueSvc, playerSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, logger)
+	handler := httpapi.NewHandler(leagueSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, logger)
 	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
 
 	return router, db.Close, nil

@@ -17,6 +17,8 @@ type Config struct {
 	HTTPAddr                    string
 	DBURL                       string
 	DBDisablePreparedBinary     bool
+	CacheEnabled                bool
+	CacheTTL                    time.Duration
 	CORSAllowedOrigins          []string
 	ReadTimeout                 time.Duration
 	WriteTimeout                time.Duration
@@ -130,6 +132,20 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("parse DB_DISABLE_PREPARED_BINARY_RESULT: %w", err)
 	}
 	cfg.DBDisablePreparedBinary = dbDisablePreparedBinary
+
+	cacheEnabled, err := strconv.ParseBool(getEnv("CACHE_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse CACHE_ENABLED: %w", err)
+	}
+	cacheTTL, err := time.ParseDuration(getEnv("CACHE_TTL", "60s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse CACHE_TTL: %w", err)
+	}
+	if cacheTTL <= 0 {
+		return Config{}, fmt.Errorf("CACHE_TTL must be > 0")
+	}
+	cfg.CacheEnabled = cacheEnabled
+	cfg.CacheTTL = cacheTTL
 
 	readTimeout, err := time.ParseDuration(getEnv("APP_READ_TIMEOUT", "10s"))
 	if err != nil {

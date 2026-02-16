@@ -49,4 +49,4 @@ go.work.sum
 # Dependency directories (uncomment if needed)
 # vendor/
 
-.vscode
+.cache/

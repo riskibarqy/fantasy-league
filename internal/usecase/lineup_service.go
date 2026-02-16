@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
 	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
@@ -13,7 +14,7 @@ import (
 
 const (
 	lineupStarterSize    = 11
-	lineupSubstituteSize = 5
+	lineupSubstituteSize = 4
 )
 
 type SaveLineupInput struct {
@@ -32,6 +33,7 @@ type LineupService struct {
 	leagueRepo league.Repository
 	playerRepo player.Repository
 	lineupRepo lineup.Repository
+	squadRepo  fantasy.Repository
 	now        func() time.Time
 }
 
@@ -39,11 +41,13 @@ func NewLineupService(
 	leagueRepo league.Repository,
 	playerRepo player.Repository,
 	lineupRepo lineup.Repository,
+	squadRepo fantasy.Repository,
 ) *LineupService {
 	return &LineupService{
 		leagueRepo: leagueRepo,
 		playerRepo: playerRepo,
 		lineupRepo: lineupRepo,
+		squadRepo:  squadRepo,
 		now:        time.Now,
 	}
 }
@@ -108,7 +112,7 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 		return lineup.Lineup{}, fmt.Errorf("%w: forward count must not exceed 3", ErrInvalidInput)
 	}
 	if len(substituteIDs) != lineupSubstituteSize {
-		return lineup.Lineup{}, fmt.Errorf("%w: substitute bench must contain exactly 5 players", ErrInvalidInput)
+		return lineup.Lineup{}, fmt.Errorf("%w: substitute bench must contain exactly 4 players", ErrInvalidInput)
 	}
 
 	starters := append([]string{input.GoalkeeperID}, defenderIDs...)
@@ -147,7 +151,7 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 	}
 
 	if len(allIDs) != lineupStarterSize+lineupSubstituteSize {
-		return lineup.Lineup{}, fmt.Errorf("%w: squad must contain 16 players", ErrInvalidInput)
+		return lineup.Lineup{}, fmt.Errorf("%w: lineup must contain 15 players", ErrInvalidInput)
 	}
 
 	if _, ok := starterSet[input.CaptainID]; !ok {
@@ -185,6 +189,29 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 	}
 	if err := validatePositionIDs(forwardIDs, player.PositionForward, playersByID); err != nil {
 		return lineup.Lineup{}, err
+	}
+
+	existingSquad, exists, err := s.squadRepo.GetByUserAndLeague(ctx, input.UserID, input.LeagueID)
+	if err != nil {
+		return lineup.Lineup{}, fmt.Errorf("get user squad before save lineup: %w", err)
+	}
+	if !exists {
+		return lineup.Lineup{}, fmt.Errorf("%w: user must pick fantasy squad before saving lineup", ErrInvalidInput)
+	}
+
+	if len(existingSquad.Picks) != lineupStarterSize+lineupSubstituteSize {
+		return lineup.Lineup{}, fmt.Errorf("%w: user squad must contain exactly 15 players", ErrInvalidInput)
+	}
+
+	squadPlayerSet := make(map[string]struct{}, len(existingSquad.Picks))
+	for _, pick := range existingSquad.Picks {
+		squadPlayerSet[pick.PlayerID] = struct{}{}
+	}
+
+	for _, playerID := range allIDs {
+		if _, ok := squadPlayerSet[playerID]; !ok {
+			return lineup.Lineup{}, fmt.Errorf("%w: player %s is not part of user fantasy squad", ErrInvalidInput, playerID)
+		}
 	}
 
 	item := lineup.Lineup{

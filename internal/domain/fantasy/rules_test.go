@@ -10,17 +10,21 @@ import (
 func TestValidatePicks(t *testing.T) {
 	rules := DefaultRules()
 	validPicks := []SquadPick{
-		{PlayerID: "p1", TeamID: "t1", Position: player.PositionGoalkeeper, Price: 80},
-		{PlayerID: "p2", TeamID: "t1", Position: player.PositionDefender, Price: 80},
-		{PlayerID: "p3", TeamID: "t2", Position: player.PositionDefender, Price: 80},
-		{PlayerID: "p4", TeamID: "t3", Position: player.PositionDefender, Price: 80},
-		{PlayerID: "p5", TeamID: "t1", Position: player.PositionMidfielder, Price: 90},
-		{PlayerID: "p6", TeamID: "t2", Position: player.PositionMidfielder, Price: 90},
-		{PlayerID: "p7", TeamID: "t3", Position: player.PositionMidfielder, Price: 90},
-		{PlayerID: "p8", TeamID: "t4", Position: player.PositionMidfielder, Price: 70},
-		{PlayerID: "p9", TeamID: "t2", Position: player.PositionForward, Price: 100},
-		{PlayerID: "p10", TeamID: "t3", Position: player.PositionForward, Price: 100},
-		{PlayerID: "p11", TeamID: "t4", Position: player.PositionForward, Price: 100},
+		{PlayerID: "p1", TeamID: "t1", Position: player.PositionGoalkeeper, Price: 60},
+		{PlayerID: "p2", TeamID: "t1", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p3", TeamID: "t2", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p4", TeamID: "t3", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p5", TeamID: "t4", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p6", TeamID: "t5", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p7", TeamID: "t1", Position: player.PositionMidfielder, Price: 60},
+		{PlayerID: "p8", TeamID: "t2", Position: player.PositionMidfielder, Price: 60},
+		{PlayerID: "p9", TeamID: "t3", Position: player.PositionMidfielder, Price: 60},
+		{PlayerID: "p10", TeamID: "t4", Position: player.PositionMidfielder, Price: 60},
+		{PlayerID: "p11", TeamID: "t5", Position: player.PositionMidfielder, Price: 60},
+		{PlayerID: "p12", TeamID: "t2", Position: player.PositionForward, Price: 60},
+		{PlayerID: "p13", TeamID: "t3", Position: player.PositionForward, Price: 60},
+		{PlayerID: "p14", TeamID: "t4", Position: player.PositionGoalkeeper, Price: 60},
+		{PlayerID: "p15", TeamID: "t5", Position: player.PositionForward, Price: 60},
 	}
 
 	tests := []struct {
@@ -54,14 +58,16 @@ func TestValidatePicks(t *testing.T) {
 		{
 			name: "team limit exceeded",
 			mutate: func(picks []SquadPick, _ *Rules) {
-				picks[3].TeamID = "t1"
+				picks[5].TeamID = "t1"
 			},
 			targetErr: ErrExceededTeamLimit,
 		},
 		{
 			name: "formation insufficient",
 			mutate: func(picks []SquadPick, _ *Rules) {
-				picks[0].Position = player.PositionForward
+				picks[2].Position = player.PositionForward
+				picks[3].Position = player.PositionForward
+				picks[4].Position = player.PositionForward
 			},
 			targetErr: ErrInsufficientFormation,
 		},
@@ -105,9 +111,9 @@ func TestValidatePicks(t *testing.T) {
 func TestValidatePicksPartial(t *testing.T) {
 	rules := DefaultRules()
 	picks := []SquadPick{
-		{PlayerID: "p1", TeamID: "t1", Position: player.PositionGoalkeeper, Price: 80},
-		{PlayerID: "p2", TeamID: "t1", Position: player.PositionDefender, Price: 80},
-		{PlayerID: "p3", TeamID: "t2", Position: player.PositionDefender, Price: 80},
+		{PlayerID: "p1", TeamID: "t1", Position: player.PositionGoalkeeper, Price: 60},
+		{PlayerID: "p2", TeamID: "t1", Position: player.PositionDefender, Price: 60},
+		{PlayerID: "p3", TeamID: "t2", Position: player.PositionDefender, Price: 60},
 	}
 
 	if err := ValidatePicksPartial(picks, rules); err != nil {
@@ -118,13 +124,13 @@ func TestValidatePicksPartial(t *testing.T) {
 		PlayerID: "p4",
 		TeamID:   "t1",
 		Position: player.PositionMidfielder,
-		Price:    80,
+		Price:    60,
 	})
 	picks = append(picks, SquadPick{
 		PlayerID: "p5",
 		TeamID:   "t1",
 		Position: player.PositionForward,
-		Price:    80,
+		Price:    60,
 	})
 	err := ValidatePicksPartial(picks, rules)
 	if !errors.Is(err, ErrExceededTeamLimit) {

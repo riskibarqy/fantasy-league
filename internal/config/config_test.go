@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 )
 
 func TestLoad_AppEnvValidation(t *testing.T) {
@@ -146,6 +147,34 @@ func TestLoad_DBDisablePreparedBinaryResultParsing(t *testing.T) {
 		t.Setenv("DB_DISABLE_PREPARED_BINARY_RESULT", "not-bool")
 		if _, err := Load(); err == nil {
 			t.Fatalf("expected error for invalid DB_DISABLE_PREPARED_BINARY_RESULT")
+		}
+	})
+}
+
+func TestLoad_CacheConfigParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+
+	t.Run("defaults", func(t *testing.T) {
+		t.Setenv("CACHE_ENABLED", "")
+		t.Setenv("CACHE_TTL", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.CacheEnabled {
+			t.Fatalf("expected cache enabled by default")
+		}
+		if cfg.CacheTTL != 60*time.Second {
+			t.Fatalf("unexpected default cache ttl: %s", cfg.CacheTTL)
+		}
+	})
+
+	t.Run("invalid ttl", func(t *testing.T) {
+		t.Setenv("CACHE_TTL", "bad")
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error for invalid CACHE_TTL")
 		}
 	})
 }

@@ -15,7 +15,6 @@ This project uses a pragmatic Clean Architecture split:
 ## Current Features
 
 - Multi-league foundation (`/v1/leagues`)
-- Indonesian league seeded by default (`Liga 1 Indonesia`)
 - Dashboard endpoint for fantasy frontend
 - Team, fixture, and player listing per league
 - PAT lineup endpoints (11 starters + 5 substitutes)
@@ -233,6 +232,8 @@ Configured files:
 - `PYROSCOPE_BASIC_AUTH_USER` (optional)
 - `PYROSCOPE_BASIC_AUTH_PASSWORD` (optional)
 - `APP_LOG_LEVEL` (default `info`)
+- `CACHE_ENABLED` (default `true`)
+- `CACHE_TTL` (default `60s`)
 
 ## API Endpoints
 
@@ -244,6 +245,8 @@ Configured files:
 - `GET /v1/leagues/{leagueID}/teams`
 - `GET /v1/leagues/{leagueID}/fixtures`
 - `GET /v1/leagues/{leagueID}/players`
+- `GET /v1/leagues/{leagueID}/players/{playerID}`
+- `GET /v1/leagues/{leagueID}/players/{playerID}/history`
 - `GET /v1/leagues/{leagueID}/lineup`
 - `PUT /v1/leagues/{leagueID}/lineup`
 - `POST /v1/fantasy/squads` (Bearer token required)
