@@ -34,6 +34,74 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/League'
+  /v1/leagues/{leagueID}/teams:
+    get:
+      summary: List teams by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Team list
+  /v1/leagues/{leagueID}/teams/{teamID}:
+    get:
+      summary: Get team details by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: teamID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Team details with season statistics
+  /v1/leagues/{leagueID}/teams/{teamID}/history:
+    get:
+      summary: Get team match history by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: teamID
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Team match history
+  /v1/leagues/{leagueID}/teams/{teamID}/stats:
+    get:
+      summary: Get team season statistics by league
+      parameters:
+        - in: path
+          name: leagueID
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: teamID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Team season statistics
   /v1/leagues/{leagueID}/fixtures:
     get:
       summary: List fixtures by league

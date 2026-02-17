@@ -50,3 +50,5 @@ go.work.sum
 # vendor/
 
 .cache/
+.fly/
+.vscode/

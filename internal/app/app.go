@@ -18,6 +18,7 @@ import (
 	playerdomain "github.com/riskibarqy/fantasy-league/internal/domain/player"
 	playerstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
+	teamstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/infrastructure/account/anubis"
 	cacherepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/cache"
 	postgresrepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/postgres"
@@ -47,6 +48,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var lineupRepo lineupdomain.Repository = postgresrepo.NewLineupRepository(db)
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
+	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 
 	if cfg.CacheEnabled {
@@ -58,10 +60,12 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		lineupRepo = cacherepo.NewLineupRepository(lineupRepo, cacheStore)
 		squadRepo = cacherepo.NewSquadRepository(squadRepo, cacheStore)
 		playerStatsRepo = cacherepo.NewPlayerStatsRepository(playerStatsRepo, cacheStore)
+		teamStatsRepo = cacherepo.NewTeamStatsRepository(teamStatsRepo, cacheStore)
 		customLeagueRepo = cacherepo.NewCustomLeagueRepository(customLeagueRepo, cacheStore)
 	}
 
 	leagueSvc := usecase.NewLeagueService(leagueRepo, teamRepo)
+	teamSvc := usecase.NewTeamService(leagueRepo, teamRepo, teamStatsRepo)
 	playerSvc := usecase.NewPlayerService(leagueRepo, playerRepo)
 	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
@@ -92,7 +96,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 
-	handler := httpapi.NewHandler(leagueSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, logger)
+	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, logger)
 	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
 
 	return router, db.Close, nil

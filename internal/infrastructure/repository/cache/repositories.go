@@ -14,6 +14,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
+	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	basecache "github.com/riskibarqy/fantasy-league/internal/platform/cache"
 )
 
@@ -88,6 +89,28 @@ func (r *TeamRepository) ListByLeague(ctx context.Context, leagueID string) ([]t
 
 	items, _ := v.([]team.Team)
 	return append([]team.Team(nil), items...), nil
+}
+
+func (r *TeamRepository) GetByID(ctx context.Context, leagueID, teamID string) (team.Team, bool, error) {
+	key := "team:id:" + leagueID + ":" + teamID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		item, exists, err := r.next.GetByID(ctx, leagueID, teamID)
+		if err != nil {
+			return nil, err
+		}
+		return cachedTeamByID{value: item, exists: exists}, nil
+	})
+	if err != nil {
+		return team.Team{}, false, err
+	}
+
+	cached, _ := v.(cachedTeamByID)
+	return cached.value, cached.exists, nil
+}
+
+type cachedTeamByID struct {
+	value  team.Team
+	exists bool
 }
 
 type PlayerRepository struct {
@@ -326,6 +349,49 @@ func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.
 
 	items, _ := v.([]playerstats.FixtureEvent)
 	return append([]playerstats.FixtureEvent(nil), items...), nil
+}
+
+type TeamStatsRepository struct {
+	next  teamstats.Repository
+	cache *basecache.Store
+}
+
+func NewTeamStatsRepository(next teamstats.Repository, cache *basecache.Store) *TeamStatsRepository {
+	return &TeamStatsRepository{next: next, cache: cache}
+}
+
+func (r *TeamStatsRepository) GetSeasonStatsByLeagueAndTeam(ctx context.Context, leagueID, teamID string) (teamstats.SeasonStats, error) {
+	key := "team-stats:season:" + leagueID + ":" + teamID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		item, err := r.next.GetSeasonStatsByLeagueAndTeam(ctx, leagueID, teamID)
+		if err != nil {
+			return nil, err
+		}
+		return item, nil
+	})
+	if err != nil {
+		return teamstats.SeasonStats{}, err
+	}
+
+	item, _ := v.(teamstats.SeasonStats)
+	return item, nil
+}
+
+func (r *TeamStatsRepository) ListMatchHistoryByLeagueAndTeam(ctx context.Context, leagueID, teamID string, limit int) ([]teamstats.MatchHistory, error) {
+	key := "team-stats:history:" + leagueID + ":" + teamID + ":" + strconv.Itoa(limit)
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListMatchHistoryByLeagueAndTeam(ctx, leagueID, teamID, limit)
+		if err != nil {
+			return nil, err
+		}
+		return append([]teamstats.MatchHistory(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]teamstats.MatchHistory)
+	return append([]teamstats.MatchHistory(nil), items...), nil
 }
 
 type CustomLeagueRepository struct {

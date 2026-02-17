@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
+	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -28,6 +30,7 @@ const demoUserID = "demo-manager"
 
 type Handler struct {
 	leagueService       *usecase.LeagueService
+	teamService         *usecase.TeamService
 	playerService       *usecase.PlayerService
 	playerStatsService  *usecase.PlayerStatsService
 	fixtureService      *usecase.FixtureService
@@ -41,6 +44,7 @@ type Handler struct {
 
 func NewHandler(
 	leagueService *usecase.LeagueService,
+	teamService *usecase.TeamService,
 	playerService *usecase.PlayerService,
 	playerStatsService *usecase.PlayerStatsService,
 	fixtureService *usecase.FixtureService,
@@ -56,6 +60,7 @@ func NewHandler(
 
 	return &Handler{
 		leagueService:       leagueService,
+		teamService:         teamService,
 		playerService:       playerService,
 		playerStatsService:  playerStatsService,
 		fixtureService:      fixtureService,
@@ -133,6 +138,77 @@ func (h *Handler) ListTeamsByLeague(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeSuccess(ctx, w, http.StatusOK, items)
+}
+
+func (h *Handler) GetTeamDetailsByLeague(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.GetTeamDetailsByLeague")
+	defer span.End()
+
+	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
+	teamID := strings.TrimSpace(r.PathValue("teamID"))
+
+	item, err := h.teamService.GetTeamDetailsByLeague(ctx, leagueID, teamID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "get team details failed", "league_id", leagueID, "team_id", teamID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, teamDetailToDTO(ctx, item))
+}
+
+func (h *Handler) GetTeamHistoryByLeague(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.GetTeamHistoryByLeague")
+	defer span.End()
+
+	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
+	teamID := strings.TrimSpace(r.PathValue("teamID"))
+	limit := 8
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v <= 0 {
+			writeError(ctx, w, fmt.Errorf("%w: limit must be positive integer", usecase.ErrInvalidInput))
+			return
+		}
+		limit = v
+	}
+
+	history, err := h.teamService.GetTeamHistoryByLeague(ctx, leagueID, teamID, limit)
+	if err != nil {
+		h.logger.WarnContext(ctx, "get team history failed", "league_id", leagueID, "team_id", teamID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	teams, err := h.leagueService.ListTeamsByLeague(ctx, leagueID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "list teams failed while mapping team history", "league_id", leagueID, "team_id", teamID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+	teamNameByID := make(map[string]string, len(teams))
+	for _, t := range teams {
+		teamNameByID[t.ID] = t.Name
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, teamHistoryToDTO(ctx, history, teamNameByID))
+}
+
+func (h *Handler) GetTeamStatsByLeague(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.GetTeamStatsByLeague")
+	defer span.End()
+
+	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
+	teamID := strings.TrimSpace(r.PathValue("teamID"))
+
+	stats, err := h.teamService.GetTeamStatsByLeague(ctx, leagueID, teamID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "get team stats failed", "league_id", leagueID, "team_id", teamID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, teamSeasonStatsToDTO(ctx, stats))
 }
 
 func (h *Handler) ListPlayersByLeague(w http.ResponseWriter, r *http.Request) {
@@ -879,6 +955,38 @@ type teamDTO struct {
 	LogoURL  string `json:"logoUrl"`
 }
 
+type teamDetailDTO struct {
+	Team       teamDTO            `json:"team"`
+	Statistics teamSeasonStatsDTO `json:"statistics"`
+}
+
+type teamSeasonStatsDTO struct {
+	Appearances          int     `json:"appearances"`
+	AveragePossessionPct float64 `json:"averagePossessionPct"`
+	TotalShots           int     `json:"totalShots"`
+	TotalShotsOnTarget   int     `json:"totalShotsOnTarget"`
+	TotalCorners         int     `json:"totalCorners"`
+	TotalFouls           int     `json:"totalFouls"`
+	TotalOffsides        int     `json:"totalOffsides"`
+}
+
+type teamMatchHistoryDTO struct {
+	FixtureID      string  `json:"fixtureId"`
+	Gameweek       int     `json:"gameweek"`
+	KickoffAt      string  `json:"kickoffAt"`
+	HomeTeam       string  `json:"homeTeam"`
+	AwayTeam       string  `json:"awayTeam"`
+	OpponentTeam   string  `json:"opponentTeam"`
+	OpponentTeamID string  `json:"opponentTeamId,omitempty"`
+	IsHome         bool    `json:"isHome"`
+	PossessionPct  float64 `json:"possessionPct"`
+	Shots          int     `json:"shots"`
+	ShotsOnTarget  int     `json:"shotsOnTarget"`
+	Corners        int     `json:"corners"`
+	Fouls          int     `json:"fouls"`
+	Offsides       int     `json:"offsides"`
+}
+
 type playerPublicDTO struct {
 	ID              string  `json:"id"`
 	LeagueID        string  `json:"leagueId"`
@@ -1050,6 +1158,31 @@ func teamToDTO(ctx context.Context, v team.Team) teamDTO {
 		Name:     v.Name,
 		Short:    v.Short,
 		LogoURL:  teamLogoWithFallback(ctx, v.Name, v.ImageURL),
+	}
+}
+
+func teamDetailToDTO(ctx context.Context, v usecase.TeamDetails) teamDetailDTO {
+	ctx, span := startSpan(ctx, "httpapi.teamDetailToDTO")
+	defer span.End()
+
+	return teamDetailDTO{
+		Team:       teamToDTO(ctx, v.Team),
+		Statistics: teamSeasonStatsToDTO(ctx, v.Statistics),
+	}
+}
+
+func teamSeasonStatsToDTO(ctx context.Context, stats teamstats.SeasonStats) teamSeasonStatsDTO {
+	ctx, span := startSpan(ctx, "httpapi.teamSeasonStatsToDTO")
+	defer span.End()
+
+	return teamSeasonStatsDTO{
+		Appearances:          stats.Appearances,
+		AveragePossessionPct: round1(ctx, stats.AveragePossessionPct),
+		TotalShots:           stats.TotalShots,
+		TotalShotsOnTarget:   stats.TotalShotsOnTarget,
+		TotalCorners:         stats.TotalCorners,
+		TotalFouls:           stats.TotalFouls,
+		TotalOffsides:        stats.TotalOffsides,
 	}
 }
 
@@ -1278,6 +1411,38 @@ func historyToDTO(ctx context.Context, playerTeamID string, history []playerstat
 			YellowCards: item.YellowCards,
 			RedCards:    item.RedCards,
 			Points:      item.FantasyPoints,
+		})
+	}
+
+	return out
+}
+
+func teamHistoryToDTO(ctx context.Context, history []teamstats.MatchHistory, teamNameByID map[string]string) []teamMatchHistoryDTO {
+	ctx, span := startSpan(ctx, "httpapi.teamHistoryToDTO")
+	defer span.End()
+
+	out := make([]teamMatchHistoryDTO, 0, len(history))
+	for _, item := range history {
+		opponent := teamNameByID[item.OpponentTeamID]
+		if strings.TrimSpace(opponent) == "" {
+			opponent = item.OpponentTeamID
+		}
+
+		out = append(out, teamMatchHistoryDTO{
+			FixtureID:      item.FixtureID,
+			Gameweek:       item.Gameweek,
+			KickoffAt:      item.KickoffAt.UTC().Format(time.RFC3339),
+			HomeTeam:       item.HomeTeam,
+			AwayTeam:       item.AwayTeam,
+			OpponentTeam:   opponent,
+			OpponentTeamID: item.OpponentTeamID,
+			IsHome:         item.IsHome,
+			PossessionPct:  round1(ctx, item.PossessionPct),
+			Shots:          item.Shots,
+			ShotsOnTarget:  item.ShotsOnTarget,
+			Corners:        item.Corners,
+			Fouls:          item.Fouls,
+			Offsides:       item.Offsides,
 		})
 	}
 

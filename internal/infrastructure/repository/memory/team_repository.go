@@ -31,3 +31,17 @@ func (r *TeamRepository) ListByLeague(_ context.Context, leagueID string) ([]tea
 
 	return out, nil
 }
+
+func (r *TeamRepository) GetByID(_ context.Context, leagueID, teamID string) (team.Team, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	teams := r.teamsByLeague[leagueID]
+	for _, item := range teams {
+		if item.ID == teamID {
+			return item, true, nil
+		}
+	}
+
+	return team.Team{}, false, nil
+}

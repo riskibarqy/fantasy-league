@@ -48,3 +48,33 @@ func (r *TeamRepository) ListByLeague(ctx context.Context, leagueID string) ([]t
 
 	return out, nil
 }
+
+func (r *TeamRepository) GetByID(ctx context.Context, leagueID, teamID string) (team.Team, bool, error) {
+	query, args, err := qb.Select("*").From("teams").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("public_id", teamID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return team.Team{}, false, fmt.Errorf("build get team by id query: %w", err)
+	}
+
+	var row teamTableModel
+	if err := r.db.GetContext(ctx, &row, query, args...); err != nil {
+		if isNotFound(err) {
+			return team.Team{}, false, nil
+		}
+		return team.Team{}, false, fmt.Errorf("get team by id: %w", err)
+	}
+
+	return team.Team{
+		ID:        row.PublicID,
+		LeagueID:  row.LeagueID,
+		Name:      row.Name,
+		Short:     row.Short,
+		ImageURL:  row.ImageURL,
+		TeamRefID: nullInt64ToInt64(row.TeamRefID),
+	}, true, nil
+}
