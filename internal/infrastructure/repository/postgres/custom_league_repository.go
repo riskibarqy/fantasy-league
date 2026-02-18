@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/riskibarqy/fantasy-league/internal/domain/customleague"
@@ -18,9 +19,15 @@ func NewCustomLeagueRepository(db *sqlx.DB) *CustomLeagueRepository {
 }
 
 func (r *CustomLeagueRepository) CreateGroup(ctx context.Context, group customleague.Group) error {
+	var countryCode *string
+	if normalized := strings.ToUpper(strings.TrimSpace(group.CountryCode)); normalized != "" {
+		countryCode = &normalized
+	}
+
 	insertModel := customLeagueInsertModel{
 		PublicID:    group.ID,
 		LeagueID:    group.LeagueID,
+		CountryCode: countryCode,
 		OwnerUserID: group.OwnerUserID,
 		Name:        group.Name,
 		InviteCode:  group.InviteCode,
@@ -206,6 +213,7 @@ func (r *CustomLeagueRepository) ListDefaultGroupsByLeague(ctx context.Context, 
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.Eq("is_default", true),
+			qb.IsNull("country_code"),
 			qb.IsNull("deleted_at"),
 		).
 		OrderBy("id").
@@ -217,6 +225,38 @@ func (r *CustomLeagueRepository) ListDefaultGroupsByLeague(ctx context.Context, 
 	var rows []customLeagueTableModel
 	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("list default custom leagues: %w", err)
+	}
+
+	out := make([]customleague.Group, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, customLeagueFromRow(row))
+	}
+	return out, nil
+}
+
+func (r *CustomLeagueRepository) ListDefaultGroupsByLeagueAndCountry(ctx context.Context, leagueID, countryCode string) ([]customleague.Group, error) {
+	normalizedCountry := strings.ToUpper(strings.TrimSpace(countryCode))
+	if normalizedCountry == "" {
+		return []customleague.Group{}, nil
+	}
+
+	query, args, err := qb.Select("*").
+		From("custom_leagues").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("is_default", true),
+			qb.Eq("country_code", normalizedCountry),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list default custom leagues by country query: %w", err)
+	}
+
+	var rows []customLeagueTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list default custom leagues by country: %w", err)
 	}
 
 	out := make([]customleague.Group, 0, len(rows))
@@ -373,9 +413,15 @@ func (r *CustomLeagueRepository) ListStandingsByGroup(ctx context.Context, group
 }
 
 func customLeagueFromRow(row customLeagueTableModel) customleague.Group {
+	countryCode := ""
+	if row.CountryCode.Valid {
+		countryCode = strings.ToUpper(strings.TrimSpace(row.CountryCode.String))
+	}
+
 	return customleague.Group{
 		ID:          row.PublicID,
 		LeagueID:    row.LeagueID,
+		CountryCode: countryCode,
 		OwnerUserID: row.OwnerUserID,
 		Name:        row.Name,
 		InviteCode:  row.InviteCode,

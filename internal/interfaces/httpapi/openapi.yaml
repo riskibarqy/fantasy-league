@@ -282,6 +282,90 @@ paths:
       responses:
         '200':
           description: Squad picked
+  /v1/onboarding/favorite-club:
+    put:
+      summary: Save onboarding favorite club
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                league_id:
+                  type: string
+                team_id:
+                  type: string
+              required: [league_id, team_id]
+      responses:
+        '200':
+          description: Favorite club saved
+  /v1/onboarding/pick-squad:
+    post:
+      summary: Complete onboarding squad setup
+      description: Saves fantasy squad picks, lineup (captain and vice-captain), and auto-joins default leagues.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                league_id:
+                  type: string
+                squad_name:
+                  type: string
+                player_ids:
+                  type: array
+                  minItems: 15
+                  maxItems: 15
+                  items:
+                    type: string
+                goalkeeper_id:
+                  type: string
+                defender_ids:
+                  type: array
+                  minItems: 2
+                  maxItems: 5
+                  items:
+                    type: string
+                midfielder_ids:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: string
+                forward_ids:
+                  type: array
+                  maxItems: 3
+                  items:
+                    type: string
+                substitute_ids:
+                  type: array
+                  minItems: 4
+                  maxItems: 4
+                  items:
+                    type: string
+                captain_id:
+                  type: string
+                vice_captain_id:
+                  type: string
+              required:
+                - league_id
+                - player_ids
+                - goalkeeper_id
+                - defender_ids
+                - midfielder_ids
+                - forward_ids
+                - substitute_ids
+                - captain_id
+                - vice_captain_id
+      responses:
+        '200':
+          description: Onboarding squad completed
   /v1/fantasy/squads/me:
     get:
       summary: Get authenticated squad

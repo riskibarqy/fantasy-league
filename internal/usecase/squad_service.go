@@ -40,7 +40,7 @@ type AddPlayerToSquadInput struct {
 }
 
 type DefaultLeagueJoiner interface {
-	EnsureDefaultMemberships(ctx context.Context, userID, leagueID, squadID string) error
+	EnsureDefaultMemberships(ctx context.Context, userID, leagueID, squadID, countryCode string) error
 }
 
 const defaultSquadName = "My Squad"
@@ -176,7 +176,7 @@ func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) 
 		return fantasy.Squad{}, fmt.Errorf("upsert squad: %w", err)
 	}
 	if s.joiner != nil {
-		if err := s.joiner.EnsureDefaultMemberships(ctx, squad.UserID, squad.LeagueID, squad.ID); err != nil {
+		if err := s.joiner.EnsureDefaultMemberships(ctx, squad.UserID, squad.LeagueID, squad.ID, ""); err != nil {
 			return fantasy.Squad{}, fmt.Errorf("auto join default custom leagues: %w", err)
 		}
 	}
@@ -317,7 +317,7 @@ func (s *SquadService) AddPlayerToSquad(ctx context.Context, input AddPlayerToSq
 		return fantasy.Squad{}, fmt.Errorf("upsert squad: %w", err)
 	}
 	if s.joiner != nil {
-		if err := s.joiner.EnsureDefaultMemberships(ctx, squad.UserID, squad.LeagueID, squad.ID); err != nil {
+		if err := s.joiner.EnsureDefaultMemberships(ctx, squad.UserID, squad.LeagueID, squad.ID, ""); err != nil {
 			return fantasy.Squad{}, fmt.Errorf("auto join default custom leagues: %w", err)
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	fixturedomain "github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	leaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/league"
 	lineupdomain "github.com/riskibarqy/fantasy-league/internal/domain/lineup"
+	onboardingdomain "github.com/riskibarqy/fantasy-league/internal/domain/onboarding"
 	playerdomain "github.com/riskibarqy/fantasy-league/internal/domain/player"
 	playerstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
@@ -50,6 +51,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
 	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
+	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
 
 	if cfg.CacheEnabled {
 		cacheStore := basecache.NewStore(cfg.CacheTTL)
@@ -81,6 +83,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 	squadSvc.SetDefaultLeagueJoiner(customLeagueSvc)
+	onboardingSvc := usecase.NewOnboardingService(teamRepo, onboardingRepo, squadSvc, lineupSvc, customLeagueSvc)
 
 	anubisClient := anubis.NewClient(
 		&http.Client{Timeout: cfg.AnubisTimeout},
@@ -96,7 +99,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 
-	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, logger)
+	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, onboardingSvc, logger)
 	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
 
 	return router, db.Close, nil

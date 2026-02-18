@@ -14,6 +14,7 @@ const (
 type Group struct {
 	ID          string
 	LeagueID    string
+	CountryCode string
 	OwnerUserID string
 	Name        string
 	InviteCode  string

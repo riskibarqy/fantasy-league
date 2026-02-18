@@ -10,6 +10,7 @@ type Repository interface {
 	GetGroupByInviteCode(ctx context.Context, inviteCode string) (Group, bool, error)
 	ListGroupsByUser(ctx context.Context, userID string) ([]Group, error)
 	ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]Group, error)
+	ListDefaultGroupsByLeagueAndCountry(ctx context.Context, leagueID, countryCode string) ([]Group, error)
 	ListStandingsByUser(ctx context.Context, userID string) ([]Standing, error)
 	UpsertMembershipAndStanding(ctx context.Context, membership Membership, standing Standing) error
 	IsGroupMember(ctx context.Context, groupID, userID string) (bool, error)

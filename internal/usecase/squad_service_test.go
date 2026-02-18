@@ -21,18 +21,20 @@ func (g staticIDGenerator) NewID() (string, error) {
 }
 
 type recordingDefaultLeagueJoiner struct {
-	called   bool
-	userID   string
-	leagueID string
-	squadID  string
-	err      error
+	called      bool
+	userID      string
+	leagueID    string
+	squadID     string
+	countryCode string
+	err         error
 }
 
-func (j *recordingDefaultLeagueJoiner) EnsureDefaultMemberships(_ context.Context, userID, leagueID, squadID string) error {
+func (j *recordingDefaultLeagueJoiner) EnsureDefaultMemberships(_ context.Context, userID, leagueID, squadID, countryCode string) error {
 	j.called = true
 	j.userID = userID
 	j.leagueID = leagueID
 	j.squadID = squadID
+	j.countryCode = countryCode
 	return j.err
 }
 
@@ -320,5 +322,8 @@ func TestSquadService_UpsertSquad_AutoJoinDefaultLeagues(t *testing.T) {
 	}
 	if joiner.squadID != squad.ID {
 		t.Fatalf("unexpected joiner squad_id: %s", joiner.squadID)
+	}
+	if joiner.countryCode != "" {
+		t.Fatalf("expected empty country code for direct squad upsert, got %q", joiner.countryCode)
 	}
 }

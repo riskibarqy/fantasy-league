@@ -147,6 +147,8 @@ Example:
 DB_URL='postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable' make migrate-up
 ```
 
+Default custom league data (global + country defaults) is now seeded as part of migration `000008_seed_default_custom_leagues`, so `make migrate-up` is enough.
+
 ## Fly.io Deployment
 
 This repo now includes:

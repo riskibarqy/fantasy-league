@@ -300,10 +300,11 @@ func (s *CustomLeagueService) GetStandings(ctx context.Context, userID, groupID 
 	return items, nil
 }
 
-func (s *CustomLeagueService) EnsureDefaultMemberships(ctx context.Context, userID, leagueID, squadID string) error {
+func (s *CustomLeagueService) EnsureDefaultMemberships(ctx context.Context, userID, leagueID, squadID, countryCode string) error {
 	userID = strings.TrimSpace(userID)
 	leagueID = strings.TrimSpace(leagueID)
 	squadID = strings.TrimSpace(squadID)
+	countryCode = normalizeCountryCode(countryCode)
 	if userID == "" || leagueID == "" || squadID == "" {
 		return fmt.Errorf("%w: user_id, league_id, and squad_id are required", ErrInvalidInput)
 	}
@@ -312,9 +313,21 @@ func (s *CustomLeagueService) EnsureDefaultMemberships(ctx context.Context, user
 	if err != nil {
 		return fmt.Errorf("list default custom leagues by league: %w", err)
 	}
+	if countryCode != "" && countryCode != "ZZ" {
+		countryGroups, countryErr := s.groupRepo.ListDefaultGroupsByLeagueAndCountry(ctx, leagueID, countryCode)
+		if countryErr != nil {
+			return fmt.Errorf("list default custom leagues by league and country: %w", countryErr)
+		}
+		defaultGroups = append(defaultGroups, countryGroups...)
+	}
 
+	joined := make(map[string]struct{}, len(defaultGroups))
 	now := s.now().UTC()
 	for _, group := range defaultGroups {
+		if _, exists := joined[group.ID]; exists {
+			continue
+		}
+		joined[group.ID] = struct{}{}
 		if err := s.upsertMembershipAndStanding(ctx, group.ID, userID, squadID, now); err != nil {
 			return err
 		}
@@ -405,4 +418,17 @@ func isNotFoundText(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func normalizeCountryCode(value string) string {
+	code := strings.ToUpper(strings.TrimSpace(value))
+	if len(code) != 2 {
+		return ""
+	}
+	for _, r := range code {
+		if r < 'A' || r > 'Z' {
+			return ""
+		}
+	}
+	return code
 }

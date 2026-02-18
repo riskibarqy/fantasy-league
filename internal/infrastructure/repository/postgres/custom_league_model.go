@@ -6,16 +6,17 @@ import (
 )
 
 type customLeagueTableModel struct {
-	ID          int64      `db:"id"`
-	PublicID    string     `db:"public_id"`
-	LeagueID    string     `db:"league_public_id"`
-	OwnerUserID string     `db:"owner_user_id"`
-	Name        string     `db:"name"`
-	InviteCode  string     `db:"invite_code"`
-	IsDefault   bool       `db:"is_default"`
-	CreatedAt   time.Time  `db:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at"`
-	DeletedAt   *time.Time `db:"deleted_at"`
+	ID          int64          `db:"id"`
+	PublicID    string         `db:"public_id"`
+	LeagueID    string         `db:"league_public_id"`
+	CountryCode sql.NullString `db:"country_code"`
+	OwnerUserID string         `db:"owner_user_id"`
+	Name        string         `db:"name"`
+	InviteCode  string         `db:"invite_code"`
+	IsDefault   bool           `db:"is_default"`
+	CreatedAt   time.Time      `db:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at"`
+	DeletedAt   *time.Time     `db:"deleted_at"`
 }
 
 type customLeagueStandingTableModel struct {
@@ -33,12 +34,13 @@ type customLeagueStandingTableModel struct {
 }
 
 type customLeagueInsertModel struct {
-	PublicID    string `db:"public_id"`
-	LeagueID    string `db:"league_public_id"`
-	OwnerUserID string `db:"owner_user_id"`
-	Name        string `db:"name"`
-	InviteCode  string `db:"invite_code"`
-	IsDefault   bool   `db:"is_default"`
+	PublicID    string  `db:"public_id"`
+	LeagueID    string  `db:"league_public_id"`
+	CountryCode *string `db:"country_code"`
+	OwnerUserID string  `db:"owner_user_id"`
+	Name        string  `db:"name"`
+	InviteCode  string  `db:"invite_code"`
+	IsDefault   bool    `db:"is_default"`
 }
 
 type customLeagueMemberInsertModel struct {

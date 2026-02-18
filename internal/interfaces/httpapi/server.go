@@ -32,6 +32,8 @@ func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, sw
 	mux.HandleFunc("PUT /v1/leagues/{leagueID}/lineup", handler.SaveLineupByLeague)
 	mux.Handle("POST /v1/fantasy/squads", RequireAuth(verifier, http.HandlerFunc(handler.UpsertSquad)))
 	mux.Handle("POST /v1/fantasy/squads/picks", RequireAuth(verifier, http.HandlerFunc(handler.PickSquad)))
+	mux.Handle("PUT /v1/onboarding/favorite-club", RequireAuth(verifier, http.HandlerFunc(handler.SaveOnboardingFavoriteClub)))
+	mux.Handle("POST /v1/onboarding/pick-squad", RequireAuth(verifier, http.HandlerFunc(handler.CompleteOnboardingPickSquad)))
 	mux.Handle("GET /v1/fantasy/squads/me/players", RequireAuth(verifier, http.HandlerFunc(handler.ListMySquadPlayers)))
 	mux.Handle("POST /v1/fantasy/squads/me/players", RequireAuth(verifier, http.HandlerFunc(handler.AddPlayerToMySquad)))
 	mux.Handle("GET /v1/fantasy/squads/me", RequireAuth(verifier, http.HandlerFunc(handler.GetMySquad)))

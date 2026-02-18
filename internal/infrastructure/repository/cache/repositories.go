@@ -411,6 +411,9 @@ func (r *CustomLeagueRepository) CreateGroup(ctx context.Context, group customle
 	r.cache.Delete(ctx, customLeagueByIDKey(group.ID))
 	r.cache.Delete(ctx, customLeagueByInviteKey(group.InviteCode))
 	r.cache.Delete(ctx, customLeagueDefaultByLeagueKey(group.LeagueID))
+	if group.CountryCode != "" {
+		r.cache.Delete(ctx, customLeagueDefaultByLeagueCountryKey(group.LeagueID, group.CountryCode))
+	}
 	r.cache.Delete(ctx, customLeagueListByUserKey(group.OwnerUserID))
 	r.cache.Delete(ctx, customLeagueStandingsByUserKey(group.OwnerUserID))
 	return nil
@@ -424,6 +427,8 @@ func (r *CustomLeagueRepository) UpdateGroupName(ctx context.Context, groupID, o
 	r.cache.Delete(ctx, customLeagueByIDKey(groupID))
 	r.cache.DeletePrefix(ctx, customLeagueListByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueByInvitePrefix)
+	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeaguePrefix)
+	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeagueCountryPrefix)
 	return nil
 }
 
@@ -436,6 +441,7 @@ func (r *CustomLeagueRepository) SoftDeleteGroup(ctx context.Context, groupID, o
 	r.cache.DeletePrefix(ctx, customLeagueByInvitePrefix)
 	r.cache.DeletePrefix(ctx, customLeagueListByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeaguePrefix)
+	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeagueCountryPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueStandingsByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueMembershipPrefix(groupID))
 	r.cache.DeletePrefix(ctx, customLeagueStandingsPrefix(groupID))
@@ -493,6 +499,23 @@ func (r *CustomLeagueRepository) ListGroupsByUser(ctx context.Context, userID st
 func (r *CustomLeagueRepository) ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]customleague.Group, error) {
 	v, err := r.cache.GetOrLoad(ctx, customLeagueDefaultByLeagueKey(leagueID), func(ctx context.Context) (any, error) {
 		items, err := r.next.ListDefaultGroupsByLeague(ctx, leagueID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]customleague.Group(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]customleague.Group)
+	return append([]customleague.Group(nil), items...), nil
+}
+
+func (r *CustomLeagueRepository) ListDefaultGroupsByLeagueAndCountry(ctx context.Context, leagueID, countryCode string) ([]customleague.Group, error) {
+	key := customLeagueDefaultByLeagueCountryKey(leagueID, countryCode)
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListDefaultGroupsByLeagueAndCountry(ctx, leagueID, countryCode)
 		if err != nil {
 			return nil, err
 		}
@@ -573,10 +596,11 @@ type cachedCustomLeagueByID struct {
 }
 
 const (
-	customLeagueByInvitePrefix        = "custom-league:invite:"
-	customLeagueListByUserPrefix      = "custom-league:list:user:"
-	customLeagueDefaultByLeaguePrefix = "custom-league:default:league:"
-	customLeagueStandingsByUserPrefix = "custom-league:standings:user:"
+	customLeagueByInvitePrefix               = "custom-league:invite:"
+	customLeagueListByUserPrefix             = "custom-league:list:user:"
+	customLeagueDefaultByLeaguePrefix        = "custom-league:default:league:"
+	customLeagueDefaultByLeagueCountryPrefix = "custom-league:default:league-country:"
+	customLeagueStandingsByUserPrefix        = "custom-league:standings:user:"
 )
 
 func customLeagueByIDKey(groupID string) string {
@@ -593,6 +617,10 @@ func customLeagueListByUserKey(userID string) string {
 
 func customLeagueDefaultByLeagueKey(leagueID string) string {
 	return customLeagueDefaultByLeaguePrefix + leagueID
+}
+
+func customLeagueDefaultByLeagueCountryKey(leagueID, countryCode string) string {
+	return customLeagueDefaultByLeagueCountryPrefix + leagueID + ":" + strings.ToUpper(strings.TrimSpace(countryCode))
 }
 
 func customLeagueStandingsByUserKey(userID string) string {

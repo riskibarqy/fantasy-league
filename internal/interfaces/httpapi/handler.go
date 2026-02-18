@@ -19,6 +19,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
 	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
+	"github.com/riskibarqy/fantasy-league/internal/domain/onboarding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
@@ -38,6 +39,7 @@ type Handler struct {
 	dashboardService    *usecase.DashboardService
 	squadService        *usecase.SquadService
 	customLeagueService *usecase.CustomLeagueService
+	onboardingService   *usecase.OnboardingService
 	logger              *slog.Logger
 	validator           *validator.Validate
 }
@@ -52,6 +54,7 @@ func NewHandler(
 	dashboardService *usecase.DashboardService,
 	squadService *usecase.SquadService,
 	customLeagueService *usecase.CustomLeagueService,
+	onboardingService *usecase.OnboardingService,
 	logger *slog.Logger,
 ) *Handler {
 	if logger == nil {
@@ -68,6 +71,7 @@ func NewHandler(
 		dashboardService:    dashboardService,
 		squadService:        squadService,
 		customLeagueService: customLeagueService,
+		onboardingService:   onboardingService,
 		logger:              logger,
 		validator:           validator.New(),
 	}
@@ -613,6 +617,94 @@ func (h *Handler) PickSquad(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(ctx, w, http.StatusOK, squadToDTO(ctx, squad))
 }
 
+func (h *Handler) SaveOnboardingFavoriteClub(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.SaveOnboardingFavoriteClub")
+	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
+	var req onboardingFavoriteClubRequest
+	decoder := jsoniter.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	profile, err := h.onboardingService.SaveFavoriteClub(ctx, usecase.SaveFavoriteClubInput{
+		UserID:      principal.UserID,
+		LeagueID:    req.LeagueID,
+		TeamID:      req.TeamID,
+		CountryCode: resolveCountryCode(ctx, r),
+		IPAddress:   resolveClientIP(ctx, r),
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx, "save onboarding favorite club failed", "user_id", principal.UserID, "league_id", req.LeagueID, "team_id", req.TeamID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, onboardingProfileToDTO(ctx, profile))
+}
+
+func (h *Handler) CompleteOnboardingPickSquad(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.CompleteOnboardingPickSquad")
+	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
+	var req onboardingPickSquadRequest
+	decoder := jsoniter.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	profile, squad, savedLineup, err := h.onboardingService.Complete(ctx, usecase.CompleteOnboardingInput{
+		UserID:        principal.UserID,
+		LeagueID:      req.LeagueID,
+		SquadName:     req.SquadName,
+		PlayerIDs:     req.PlayerIDs,
+		GoalkeeperID:  req.GoalkeeperID,
+		DefenderIDs:   req.DefenderIDs,
+		MidfielderIDs: req.MidfielderIDs,
+		ForwardIDs:    req.ForwardIDs,
+		SubstituteIDs: req.SubstituteIDs,
+		CaptainID:     req.CaptainID,
+		ViceCaptainID: req.ViceCaptainID,
+		CountryCode:   resolveCountryCode(ctx, r),
+		IPAddress:     resolveClientIP(ctx, r),
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx, "complete onboarding squad pick failed", "user_id", principal.UserID, "league_id", req.LeagueID, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, onboardingCompleteResponseDTO{
+		Profile: onboardingProfileToDTO(ctx, profile),
+		Squad:   squadToDTO(ctx, squad),
+		Lineup:  lineupToDTO(ctx, savedLineup),
+	})
+}
+
 func (h *Handler) AddPlayerToMySquad(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.AddPlayerToMySquad")
 	defer span.End()
@@ -896,6 +988,24 @@ type pickSquadRequest struct {
 	PlayerIDs []string `json:"player_ids" validate:"required,len=15,dive,required"`
 }
 
+type onboardingFavoriteClubRequest struct {
+	LeagueID string `json:"league_id" validate:"required"`
+	TeamID   string `json:"team_id" validate:"required"`
+}
+
+type onboardingPickSquadRequest struct {
+	LeagueID      string   `json:"league_id" validate:"required"`
+	SquadName     string   `json:"squad_name" validate:"omitempty,max=100"`
+	PlayerIDs     []string `json:"player_ids" validate:"required,len=15,dive,required"`
+	GoalkeeperID  string   `json:"goalkeeper_id" validate:"required"`
+	DefenderIDs   []string `json:"defender_ids" validate:"required,min=2,max=5,dive,required"`
+	MidfielderIDs []string `json:"midfielder_ids" validate:"max=5,dive,required"`
+	ForwardIDs    []string `json:"forward_ids" validate:"max=3,dive,required"`
+	SubstituteIDs []string `json:"substitute_ids" validate:"required,len=4,dive,required"`
+	CaptainID     string   `json:"captain_id" validate:"required"`
+	ViceCaptainID string   `json:"vice_captain_id" validate:"required"`
+}
+
 type addPlayerToSquadRequest struct {
 	LeagueID  string `json:"league_id" validate:"required"`
 	SquadName string `json:"squad_name" validate:"omitempty,max=100"`
@@ -1084,6 +1194,22 @@ type lineupDTO struct {
 	UpdatedAt     string   `json:"updatedAt"`
 }
 
+type onboardingProfileDTO struct {
+	UserID              string `json:"user_id"`
+	FavoriteLeagueID    string `json:"favorite_league_id,omitempty"`
+	FavoriteTeamID      string `json:"favorite_team_id,omitempty"`
+	CountryCode         string `json:"country_code,omitempty"`
+	IPAddress           string `json:"ip_address,omitempty"`
+	OnboardingCompleted bool   `json:"onboarding_completed"`
+	UpdatedAtUTC        string `json:"updated_at_utc,omitempty"`
+}
+
+type onboardingCompleteResponseDTO struct {
+	Profile onboardingProfileDTO `json:"profile"`
+	Squad   squadDTO             `json:"squad"`
+	Lineup  lineupDTO            `json:"lineup"`
+}
+
 type squadDTO struct {
 	ID           string         `json:"id"`
 	UserID       string         `json:"user_id"`
@@ -1106,6 +1232,7 @@ type squadPickDTO struct {
 type customLeagueDTO struct {
 	ID           string `json:"id"`
 	LeagueID     string `json:"league_id"`
+	CountryCode  string `json:"country_code,omitempty"`
 	OwnerUserID  string `json:"owner_user_id"`
 	Name         string `json:"name"`
 	InviteCode   string `json:"invite_code"`
@@ -1117,6 +1244,7 @@ type customLeagueDTO struct {
 type customLeagueListDTO struct {
 	ID           string `json:"id"`
 	LeagueID     string `json:"league_id"`
+	CountryCode  string `json:"country_code,omitempty"`
 	OwnerUserID  string `json:"owner_user_id"`
 	Name         string `json:"name"`
 	InviteCode   string `json:"invite_code"`
@@ -1253,6 +1381,24 @@ func lineupToDTO(ctx context.Context, item lineup.Lineup) lineupDTO {
 		ViceCaptainID: item.ViceCaptainID,
 		UpdatedAt:     item.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+func onboardingProfileToDTO(ctx context.Context, item onboarding.Profile) onboardingProfileDTO {
+	ctx, span := startSpan(ctx, "httpapi.onboardingProfileToDTO")
+	defer span.End()
+
+	dto := onboardingProfileDTO{
+		UserID:              item.UserID,
+		FavoriteLeagueID:    item.FavoriteLeagueID,
+		FavoriteTeamID:      item.FavoriteTeamID,
+		CountryCode:         item.CountryCode,
+		IPAddress:           item.IPAddress,
+		OnboardingCompleted: item.OnboardingCompleted,
+	}
+	if !item.UpdatedAt.IsZero() {
+		dto.UpdatedAtUTC = item.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return dto
 }
 
 func derivedPlayerMetrics(ctx context.Context, playerID string) (float64, float64) {
@@ -1520,6 +1666,7 @@ func customLeagueToDTO(ctx context.Context, v customleague.Group) customLeagueDT
 	return customLeagueDTO{
 		ID:           v.ID,
 		LeagueID:     v.LeagueID,
+		CountryCode:  v.CountryCode,
 		OwnerUserID:  v.OwnerUserID,
 		Name:         v.Name,
 		InviteCode:   v.InviteCode,
@@ -1536,6 +1683,7 @@ func customLeagueListToDTO(ctx context.Context, v customleague.GroupWithMyStandi
 	return customLeagueListDTO{
 		ID:           v.Group.ID,
 		LeagueID:     v.Group.LeagueID,
+		CountryCode:  v.Group.CountryCode,
 		OwnerUserID:  v.Group.OwnerUserID,
 		Name:         v.Group.Name,
 		InviteCode:   v.Group.InviteCode,
