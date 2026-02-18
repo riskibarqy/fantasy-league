@@ -13,12 +13,28 @@ type PlayerRepository struct {
 	db *sqlx.DB
 }
 
+var playerSelectColumns = []string{
+	"id",
+	"public_id",
+	"league_public_id",
+	"team_public_id",
+	"name",
+	"position",
+	"price",
+	"is_active",
+	"player_id::text AS player_id",
+	"image_url",
+	"created_at",
+	"updated_at",
+	"deleted_at",
+}
+
 func NewPlayerRepository(db *sqlx.DB) *PlayerRepository {
 	return &PlayerRepository{db: db}
 }
 
 func (r *PlayerRepository) ListByLeague(ctx context.Context, leagueID string) ([]player.Player, error) {
-	query, args, err := qb.Select("*").From("players").
+	query, args, err := qb.Select(playerSelectColumns...).From("players").
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.IsNull("deleted_at"),
@@ -44,7 +60,7 @@ func (r *PlayerRepository) ListByLeague(ctx context.Context, leagueID string) ([
 			Position:    player.Position(row.Position),
 			Price:       row.Price,
 			ImageURL:    row.ImageURL,
-			PlayerRefID: nullInt64ToInt64(row.PlayerRefID),
+			PlayerRefID: nullStringToInt64(row.PlayerRefID),
 		})
 	}
 
@@ -56,7 +72,7 @@ func (r *PlayerRepository) GetByIDs(ctx context.Context, leagueID string, player
 		return []player.Player{}, nil
 	}
 
-	query, args, err := qb.Select("*").From("players").
+	query, args, err := qb.Select(playerSelectColumns...).From("players").
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.In("public_id", stringSliceToAny(playerIDs)),
@@ -83,7 +99,7 @@ func (r *PlayerRepository) GetByIDs(ctx context.Context, leagueID string, player
 			Position:    player.Position(row.Position),
 			Price:       row.Price,
 			ImageURL:    row.ImageURL,
-			PlayerRefID: nullInt64ToInt64(row.PlayerRefID),
+			PlayerRefID: nullStringToInt64(row.PlayerRefID),
 		})
 	}
 

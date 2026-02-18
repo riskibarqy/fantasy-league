@@ -1,6 +1,9 @@
 package postgres
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestIsBindParameterMismatch(t *testing.T) {
 	t.Run("matches bind mismatch error", func(t *testing.T) {
@@ -46,6 +49,29 @@ func TestQuoteLiteral(t *testing.T) {
 	if got != "'o''hara'" {
 		t.Fatalf("unexpected quoted literal: %s", got)
 	}
+}
+
+func TestNullStringToInt64(t *testing.T) {
+	t.Run("parses integer string", func(t *testing.T) {
+		got := nullStringToInt64(sql.NullString{String: "123", Valid: true})
+		if got != 123 {
+			t.Fatalf("expected 123, got %d", got)
+		}
+	})
+
+	t.Run("returns zero for null", func(t *testing.T) {
+		got := nullStringToInt64(sql.NullString{})
+		if got != 0 {
+			t.Fatalf("expected 0, got %d", got)
+		}
+	})
+
+	t.Run("returns zero for invalid string", func(t *testing.T) {
+		got := nullStringToInt64(sql.NullString{String: "2026-02-17 04:59:50.097223+00", Valid: true})
+		if got != 0 {
+			t.Fatalf("expected 0, got %d", got)
+		}
+	})
 }
 
 type fakeErr string

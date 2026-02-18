@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"database/sql"
+	"strconv"
 	"strings"
 )
 
@@ -49,4 +50,22 @@ func nullInt64ToIntPtr(v sql.NullInt64) *int {
 
 	value := int(v.Int64)
 	return &value
+}
+
+func nullStringToInt64(v sql.NullString) int64 {
+	if !v.Valid {
+		return 0
+	}
+
+	text := strings.TrimSpace(v.String)
+	if text == "" {
+		return 0
+	}
+
+	parsed, err := strconv.ParseInt(text, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return parsed
 }
