@@ -104,18 +104,9 @@ RETURNING public_id`)
 		return fmt.Errorf("build upsert fantasy squad query: %w", err)
 	}
 
-	rows, err := tx.QueryxContext(ctx, upsertSquadQuery, upsertSquadArgs...)
-	if err != nil {
-		return fmt.Errorf("upsert fantasy squad: %w", err)
-	}
-	defer rows.Close()
 	var publicID string
-	if rows.Next() {
-		if err := rows.Scan(&publicID); err != nil {
-			return fmt.Errorf("scan upserted fantasy squad: %w", err)
-		}
-	} else {
-		return fmt.Errorf("upsert fantasy squad: no row returned")
+	if err := tx.QueryRowxContext(ctx, upsertSquadQuery, upsertSquadArgs...).Scan(&publicID); err != nil {
+		return fmt.Errorf("upsert fantasy squad: %w", err)
 	}
 
 	clearPicksQuery, clearPicksArgs, err := qb.Update("fantasy_squad_picks").
