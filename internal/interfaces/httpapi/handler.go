@@ -483,10 +483,16 @@ func (h *Handler) GetLineupByLeague(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.GetLineupByLeague")
 	defer span.End()
 
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
+
 	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
-	item, exists, err := h.lineupService.GetByUserAndLeague(ctx, demoUserID, leagueID)
+	item, exists, err := h.lineupService.GetByUserAndLeague(ctx, principal.UserID, leagueID)
 	if err != nil {
-		h.logger.WarnContext(ctx, "get lineup failed", "league_id", leagueID, "error", err)
+		h.logger.WarnContext(ctx, "get lineup failed", "league_id", leagueID, "user_id", principal.UserID, "error", err)
 		writeError(ctx, w, err)
 		return
 	}
@@ -501,6 +507,12 @@ func (h *Handler) GetLineupByLeague(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SaveLineupByLeague(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.SaveLineupByLeague")
 	defer span.End()
+
+	principal, ok := principalFromContext(ctx)
+	if !ok {
+		writeError(ctx, w, fmt.Errorf("%w: principal is missing from request context", usecase.ErrUnauthorized))
+		return
+	}
 
 	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
 	var req lineupUpsertRequest
@@ -524,7 +536,7 @@ func (h *Handler) SaveLineupByLeague(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item, err := h.lineupService.Save(ctx, usecase.SaveLineupInput{
-		UserID:        demoUserID,
+		UserID:        principal.UserID,
 		LeagueID:      req.LeagueID,
 		GoalkeeperID:  req.GoalkeeperID,
 		DefenderIDs:   req.DefenderIDs,
@@ -535,7 +547,7 @@ func (h *Handler) SaveLineupByLeague(w http.ResponseWriter, r *http.Request) {
 		ViceCaptainID: req.ViceCaptainID,
 	})
 	if err != nil {
-		h.logger.WarnContext(ctx, "save lineup failed", "league_id", leagueID, "error", err)
+		h.logger.WarnContext(ctx, "save lineup failed", "league_id", leagueID, "user_id", principal.UserID, "error", err)
 		writeError(ctx, w, err)
 		return
 	}
