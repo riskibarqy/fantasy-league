@@ -28,6 +28,20 @@ func (r *LineupRepository) GetByUserAndLeague(_ context.Context, userID, leagueI
 	return cloneLineup(item), true, nil
 }
 
+func (r *LineupRepository) ListByLeague(_ context.Context, leagueID string) ([]lineup.Lineup, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]lineup.Lineup, 0)
+	for _, item := range r.items {
+		if item.LeagueID != leagueID {
+			continue
+		}
+		out = append(out, cloneLineup(item))
+	}
+	return out, nil
+}
+
 func (r *LineupRepository) Upsert(_ context.Context, item lineup.Lineup) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -124,6 +124,63 @@ func (r *TeamStatsRepository) ListMatchHistoryByLeagueAndTeam(ctx context.Contex
 	return out, nil
 }
 
+func (r *TeamStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []teamstats.FixtureStat) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx upsert team fixture stats: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	clearQuery, clearArgs, err := qb.Update("team_fixture_stats").
+		SetExpr("deleted_at", "NOW()").
+		Where(
+			qb.Eq("fixture_public_id", fixtureID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build clear team fixture stats query: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
+		return fmt.Errorf("clear team fixture stats: %w", err)
+	}
+
+	for _, stat := range stats {
+		insertModel := teamFixtureStatInsertModel{
+			FixtureID:     fixtureID,
+			TeamID:        stat.TeamID,
+			PossessionPct: stat.PossessionPct,
+			Shots:         stat.Shots,
+			ShotsOnTarget: stat.ShotsOnTarget,
+			Corners:       stat.Corners,
+			Fouls:         stat.Fouls,
+			Offsides:      stat.Offsides,
+		}
+		query, args, err := qb.InsertModel("team_fixture_stats", insertModel, `ON CONFLICT (fixture_public_id, team_public_id) WHERE deleted_at IS NULL
+DO UPDATE SET
+    possession_pct = EXCLUDED.possession_pct,
+    shots = EXCLUDED.shots,
+    shots_on_target = EXCLUDED.shots_on_target,
+    corners = EXCLUDED.corners,
+    fouls = EXCLUDED.fouls,
+    offsides = EXCLUDED.offsides,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert team fixture stat query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert team fixture stat team=%s: %w", stat.TeamID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert team fixture stats tx: %w", err)
+	}
+	return nil
+}
+
 type teamSeasonStatsRow struct {
 	Appearances          int     `db:"appearances"`
 	AveragePossessionPct float64 `db:"average_possession_pct"`
@@ -148,4 +205,15 @@ type teamMatchHistoryRow struct {
 	Corners       int            `db:"corners"`
 	Fouls         int            `db:"fouls"`
 	Offsides      int            `db:"offsides"`
+}
+
+type teamFixtureStatInsertModel struct {
+	FixtureID     string  `db:"fixture_public_id"`
+	TeamID        string  `db:"team_public_id"`
+	PossessionPct float64 `db:"possession_pct"`
+	Shots         int     `db:"shots"`
+	ShotsOnTarget int     `db:"shots_on_target"`
+	Corners       int     `db:"corners"`
+	Fouls         int     `db:"fouls"`
+	Offsides      int     `db:"offsides"`
 }

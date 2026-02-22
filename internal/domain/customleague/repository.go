@@ -8,11 +8,14 @@ type Repository interface {
 	SoftDeleteGroup(ctx context.Context, groupID, ownerUserID string) error
 	GetGroupByID(ctx context.Context, groupID string) (Group, bool, error)
 	GetGroupByInviteCode(ctx context.Context, inviteCode string) (Group, bool, error)
+	ListGroupsByLeague(ctx context.Context, leagueID string) ([]Group, error)
 	ListGroupsByUser(ctx context.Context, userID string) ([]Group, error)
 	ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]Group, error)
 	ListDefaultGroupsByLeagueAndCountry(ctx context.Context, leagueID, countryCode string) ([]Group, error)
+	ListMembershipsByGroup(ctx context.Context, groupID string) ([]Membership, error)
 	ListStandingsByUser(ctx context.Context, userID string) ([]Standing, error)
 	UpsertMembershipAndStanding(ctx context.Context, membership Membership, standing Standing) error
+	UpdateStandings(ctx context.Context, groupID string, standings []Standing) error
 	IsGroupMember(ctx context.Context, groupID, userID string) (bool, error)
 	ListStandingsByGroup(ctx context.Context, groupID string) ([]Standing, error)
 }

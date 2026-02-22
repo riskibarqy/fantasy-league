@@ -34,6 +34,7 @@ type LineupService struct {
 	playerRepo player.Repository
 	lineupRepo lineup.Repository
 	squadRepo  fantasy.Repository
+	scorer     leagueScoringUpdater
 	now        func() time.Time
 }
 
@@ -50,6 +51,10 @@ func NewLineupService(
 		squadRepo:  squadRepo,
 		now:        time.Now,
 	}
+}
+
+func (s *LineupService) SetScoringUpdater(scorer leagueScoringUpdater) {
+	s.scorer = scorer
 }
 
 func (s *LineupService) GetByUserAndLeague(ctx context.Context, userID, leagueID string) (lineup.Lineup, bool, error) {
@@ -83,6 +88,11 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 
 	if err := s.validateLeague(ctx, input.LeagueID); err != nil {
 		return lineup.Lineup{}, err
+	}
+	if s.scorer != nil {
+		if err := s.scorer.EnsureLeagueUpToDate(ctx, input.LeagueID); err != nil {
+			return lineup.Lineup{}, fmt.Errorf("ensure league scoring before lineup save: %w", err)
+		}
 	}
 
 	defenderIDs, err := normalizeIDs(input.DefenderIDs)

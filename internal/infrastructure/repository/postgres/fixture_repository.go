@@ -51,6 +51,11 @@ func (r *FixtureRepository) ListByLeague(ctx context.Context, leagueID string) (
 			FixtureRefID: nullInt64ToInt64(row.FixtureRefID),
 			KickoffAt:    row.KickoffAt,
 			Venue:        row.Venue,
+			HomeScore:    nullInt64ToIntPtr(row.HomeScore),
+			AwayScore:    nullInt64ToIntPtr(row.AwayScore),
+			Status:       fixture.NormalizeStatus(row.Status),
+			WinnerTeamID: row.WinnerTeamID.String,
+			FinishedAt:   nullTimeToTimePtr(row.FinishedAt),
 		})
 	}
 
@@ -64,8 +69,15 @@ func (r *FixtureRepository) listByLeagueFallback(ctx context.Context, leagueID s
 		"gameweek",
 		"home_team",
 		"away_team",
+		"COALESCE((to_jsonb(fixtures) ->> 'home_team_public_id'), '') AS home_team_public_id",
+		"COALESCE((to_jsonb(fixtures) ->> 'away_team_public_id'), '') AS away_team_public_id",
 		"kickoff_at",
 		"COALESCE((to_jsonb(fixtures) ->> 'venue'), '') AS venue",
+		"NULLIF((to_jsonb(fixtures) ->> 'home_score'), '')::bigint AS home_score",
+		"NULLIF((to_jsonb(fixtures) ->> 'away_score'), '')::bigint AS away_score",
+		"COALESCE((to_jsonb(fixtures) ->> 'status'), 'SCHEDULED') AS status",
+		"(to_jsonb(fixtures) ->> 'winner_team_public_id') AS winner_team_public_id",
+		"NULLIF((to_jsonb(fixtures) ->> 'finished_at'), '')::timestamptz AS finished_at",
 	).From("fixtures").
 		Where(
 			qb.Eq("league_public_id", leagueID),
@@ -95,10 +107,73 @@ func (r *FixtureRepository) listByLeagueFallback(ctx context.Context, leagueID s
 			FixtureRefID: nullInt64ToInt64(row.FixtureRefID),
 			KickoffAt:    row.KickoffAt,
 			Venue:        row.Venue,
+			HomeScore:    nullInt64ToIntPtr(row.HomeScore),
+			AwayScore:    nullInt64ToIntPtr(row.AwayScore),
+			Status:       fixture.NormalizeStatus(row.Status),
+			WinnerTeamID: row.WinnerTeamID.String,
+			FinishedAt:   nullTimeToTimePtr(row.FinishedAt),
 		})
 	}
 
 	return out, nil
+}
+
+func (r *FixtureRepository) UpsertFixtures(ctx context.Context, items []fixture.Fixture) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx upsert fixtures: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, item := range items {
+		insertModel := fixtureInsertModel{
+			PublicID:     item.ID,
+			LeagueID:     item.LeagueID,
+			Gameweek:     item.Gameweek,
+			HomeTeam:     item.HomeTeam,
+			AwayTeam:     item.AwayTeam,
+			FixtureRefID: nullableInt64(item.FixtureRefID),
+			HomeTeamID:   nullableString(item.HomeTeamID),
+			AwayTeamID:   nullableString(item.AwayTeamID),
+			KickoffAt:    item.KickoffAt,
+			Venue:        item.Venue,
+			HomeScore:    item.HomeScore,
+			AwayScore:    item.AwayScore,
+			Status:       fixture.NormalizeStatus(item.Status),
+			WinnerTeamID: nullableString(item.WinnerTeamID),
+			FinishedAt:   item.FinishedAt,
+		}
+		query, args, err := qb.InsertModel("fixtures", insertModel, `ON CONFLICT (public_id)
+DO UPDATE SET
+    league_public_id = EXCLUDED.league_public_id,
+    gameweek = EXCLUDED.gameweek,
+    home_team = EXCLUDED.home_team,
+    away_team = EXCLUDED.away_team,
+    fixture_id = EXCLUDED.fixture_id,
+    home_team_public_id = EXCLUDED.home_team_public_id,
+    away_team_public_id = EXCLUDED.away_team_public_id,
+    kickoff_at = EXCLUDED.kickoff_at,
+    venue = EXCLUDED.venue,
+    home_score = EXCLUDED.home_score,
+    away_score = EXCLUDED.away_score,
+    status = EXCLUDED.status,
+    winner_team_public_id = EXCLUDED.winner_team_public_id,
+    finished_at = EXCLUDED.finished_at,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert fixture query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert fixture id=%s: %w", item.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert fixtures tx: %w", err)
+	}
+	return nil
 }
 
 func isFixtureResultFormatMismatch(err error) bool {

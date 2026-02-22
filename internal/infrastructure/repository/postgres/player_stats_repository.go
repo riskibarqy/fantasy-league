@@ -169,6 +169,158 @@ func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.
 	return out, nil
 }
 
+func (r *PlayerStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []playerstats.FixtureStat) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx upsert player fixture stats: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	clearQuery, clearArgs, err := qb.Update("player_fixture_stats").
+		SetExpr("deleted_at", "NOW()").
+		Where(
+			qb.Eq("fixture_public_id", fixtureID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build clear player fixture stats query: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
+		return fmt.Errorf("clear player fixture stats: %w", err)
+	}
+
+	for _, stat := range stats {
+		insertModel := playerFixtureStatInsertModel{
+			FixtureID:     fixtureID,
+			PlayerID:      stat.PlayerID,
+			TeamID:        stat.TeamID,
+			MinutesPlayed: stat.MinutesPlayed,
+			Goals:         stat.Goals,
+			Assists:       stat.Assists,
+			CleanSheet:    stat.CleanSheet,
+			YellowCards:   stat.YellowCards,
+			RedCards:      stat.RedCards,
+			Saves:         stat.Saves,
+			FantasyPoints: stat.FantasyPoints,
+		}
+		query, args, err := qb.InsertModel("player_fixture_stats", insertModel, `ON CONFLICT (fixture_public_id, player_public_id) WHERE deleted_at IS NULL
+DO UPDATE SET
+    team_public_id = EXCLUDED.team_public_id,
+    minutes_played = EXCLUDED.minutes_played,
+    goals = EXCLUDED.goals,
+    assists = EXCLUDED.assists,
+    clean_sheet = EXCLUDED.clean_sheet,
+    yellow_cards = EXCLUDED.yellow_cards,
+    red_cards = EXCLUDED.red_cards,
+    saves = EXCLUDED.saves,
+    fantasy_points = EXCLUDED.fantasy_points,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert player fixture stat query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert player fixture stat player=%s: %w", stat.PlayerID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert player fixture stats tx: %w", err)
+	}
+	return nil
+}
+
+func (r *PlayerStatsRepository) ReplaceFixtureEvents(ctx context.Context, fixtureID string, events []playerstats.FixtureEvent) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx replace fixture events: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	clearQuery, clearArgs, err := qb.Update("fixture_events").
+		SetExpr("deleted_at", "NOW()").
+		Where(
+			qb.Eq("fixture_public_id", fixtureID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build clear fixture events query: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
+		return fmt.Errorf("clear fixture events: %w", err)
+	}
+
+	for _, event := range events {
+		insertModel := fixtureEventInsertModel{
+			EventID:        nullableInt64(event.EventID),
+			FixtureID:      fixtureID,
+			TeamID:         nullableString(event.TeamID),
+			PlayerID:       nullableString(event.PlayerID),
+			AssistPlayerID: nullableString(event.AssistPlayerID),
+			EventType:      event.EventType,
+			Detail:         nullableString(event.Detail),
+			Minute:         event.Minute,
+			ExtraMinute:    event.ExtraMinute,
+		}
+		query, args, err := qb.InsertModel("fixture_events", insertModel, `ON CONFLICT (event_id) WHERE deleted_at IS NULL AND event_id IS NOT NULL
+DO UPDATE SET
+    fixture_public_id = EXCLUDED.fixture_public_id,
+    team_public_id = EXCLUDED.team_public_id,
+    player_public_id = EXCLUDED.player_public_id,
+    assist_player_public_id = EXCLUDED.assist_player_public_id,
+    event_type = EXCLUDED.event_type,
+    detail = EXCLUDED.detail,
+    minute = EXCLUDED.minute,
+    extra_minute = EXCLUDED.extra_minute,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert fixture event query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert fixture event event_id=%d: %w", event.EventID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit replace fixture events tx: %w", err)
+	}
+	return nil
+}
+
+func (r *PlayerStatsRepository) GetFantasyPointsByLeagueAndGameweek(ctx context.Context, leagueID string, gameweek int) (map[string]int, error) {
+	query, args, err := qb.Select(
+		"pfs.player_public_id",
+		"COALESCE(SUM(pfs.fantasy_points), 0) AS total_points",
+	).From("player_fixture_stats pfs JOIN fixtures f ON f.public_id = pfs.fixture_public_id").
+		Where(
+			qb.Eq("f.league_public_id", leagueID),
+			qb.Eq("f.gameweek", gameweek),
+			qb.IsNull("pfs.deleted_at"),
+			qb.IsNull("f.deleted_at"),
+		).
+		GroupBy("pfs.player_public_id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get fantasy points by gameweek query: %w", err)
+	}
+
+	var rows []playerGameweekPointsRow
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("get fantasy points by gameweek: %w", err)
+	}
+
+	out := make(map[string]int, len(rows))
+	for _, row := range rows {
+		out[row.PlayerID] = row.TotalPoints
+	}
+	return out, nil
+}
+
 type seasonStatsRow struct {
 	MinutesPlayed int `db:"minutes_played"`
 	Goals         int `db:"goals"`
@@ -208,4 +360,51 @@ type fixtureEventRow struct {
 	Detail         sql.NullString `db:"detail"`
 	Minute         int            `db:"minute"`
 	ExtraMinute    int            `db:"extra_minute"`
+}
+
+type playerFixtureStatInsertModel struct {
+	FixtureID     string `db:"fixture_public_id"`
+	PlayerID      string `db:"player_public_id"`
+	TeamID        string `db:"team_public_id"`
+	MinutesPlayed int    `db:"minutes_played"`
+	Goals         int    `db:"goals"`
+	Assists       int    `db:"assists"`
+	CleanSheet    bool   `db:"clean_sheet"`
+	YellowCards   int    `db:"yellow_cards"`
+	RedCards      int    `db:"red_cards"`
+	Saves         int    `db:"saves"`
+	FantasyPoints int    `db:"fantasy_points"`
+}
+
+type fixtureEventInsertModel struct {
+	EventID        *int64  `db:"event_id"`
+	FixtureID      string  `db:"fixture_public_id"`
+	TeamID         *string `db:"team_public_id"`
+	PlayerID       *string `db:"player_public_id"`
+	AssistPlayerID *string `db:"assist_player_public_id"`
+	EventType      string  `db:"event_type"`
+	Detail         *string `db:"detail"`
+	Minute         int     `db:"minute"`
+	ExtraMinute    int     `db:"extra_minute"`
+}
+
+type playerGameweekPointsRow struct {
+	PlayerID    string `db:"player_public_id"`
+	TotalPoints int    `db:"total_points"`
+}
+
+func nullableInt64(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	v := value
+	return &v
+}
+
+func nullableString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	v := value
+	return &v
 }

@@ -18,6 +18,7 @@ import (
 	onboardingdomain "github.com/riskibarqy/fantasy-league/internal/domain/onboarding"
 	playerdomain "github.com/riskibarqy/fantasy-league/internal/domain/player"
 	playerstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
+	scoringdomain "github.com/riskibarqy/fantasy-league/internal/domain/scoring"
 	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
 	teamstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/infrastructure/account/anubis"
@@ -45,13 +46,15 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var leagueRepo leaguedomain.Repository = postgresrepo.NewLeagueRepository(db)
 	var teamRepo teamdomain.Repository = postgresrepo.NewTeamRepository(db)
 	var playerRepo playerdomain.Repository = postgresrepo.NewPlayerRepository(db)
-	var fixtureRepo fixturedomain.Repository = postgresrepo.NewFixtureRepository(db)
+	fixtureWriter := postgresrepo.NewFixtureRepository(db)
+	var fixtureRepo fixturedomain.Repository = fixtureWriter
 	var lineupRepo lineupdomain.Repository = postgresrepo.NewLineupRepository(db)
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
 	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
+	var scoringRepo scoringdomain.Repository = postgresrepo.NewScoringRepository(db)
 
 	if cfg.CacheEnabled {
 		cacheStore := basecache.NewStore(cfg.CacheTTL)
@@ -72,8 +75,10 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
 	lineupSvc := usecase.NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
-	dashboardSvc := usecase.NewDashboardService(leagueRepo, playerRepo, fixtureRepo, lineupRepo)
-	customLeagueSvc := usecase.NewCustomLeagueService(leagueRepo, squadRepo, customLeagueRepo, idgen.NewRandomGenerator())
+	scoringSvc := usecase.NewScoringService(fixtureRepo, squadRepo, lineupRepo, playerStatsRepo, customLeagueRepo, scoringRepo)
+	dashboardSvc := usecase.NewDashboardService(leagueRepo, fixtureRepo, squadRepo, customLeagueRepo, scoringSvc)
+	customLeagueSvc := usecase.NewCustomLeagueService(leagueRepo, squadRepo, customLeagueRepo, scoringSvc, idgen.NewRandomGenerator())
+	ingestionSvc := usecase.NewIngestionService(fixtureWriter, playerStatsRepo, teamStatsRepo)
 	squadSvc := usecase.NewSquadService(
 		leagueRepo,
 		playerRepo,
@@ -82,7 +87,9 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		idgen.NewRandomGenerator(),
 		logger,
 	)
+	squadSvc.SetScoringUpdater(scoringSvc)
 	squadSvc.SetDefaultLeagueJoiner(customLeagueSvc)
+	lineupSvc.SetScoringUpdater(scoringSvc)
 	onboardingSvc := usecase.NewOnboardingService(teamRepo, onboardingRepo, squadSvc, lineupSvc, customLeagueSvc)
 
 	anubisClient := anubis.NewClient(
@@ -99,7 +106,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 
-	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, customLeagueSvc, onboardingSvc, logger)
+	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, ingestionSvc, customLeagueSvc, onboardingSvc, logger)
 	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
 
 	return router, db.Close, nil

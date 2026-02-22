@@ -100,6 +100,7 @@ type SelectBuilder struct {
 	columns []string
 	table   string
 	where   []Condition
+	groupBy []string
 	orderBy []string
 	limit   int
 }
@@ -120,6 +121,11 @@ func (b *SelectBuilder) Where(conditions ...Condition) *SelectBuilder {
 
 func (b *SelectBuilder) OrderBy(parts ...string) *SelectBuilder {
 	b.orderBy = append(b.orderBy, parts...)
+	return b
+}
+
+func (b *SelectBuilder) GroupBy(parts ...string) *SelectBuilder {
+	b.groupBy = append(b.groupBy, parts...)
 	return b
 }
 
@@ -145,6 +151,7 @@ func (b *SelectBuilder) ToSQL() (string, []any, error) {
 	args := make([]any, 0, len(b.where))
 	argIndex := 1
 	appendWhereClause(&buf, b.where, &args, &argIndex)
+	appendGroupByClause(&buf, b.groupBy)
 	appendOrderByClause(&buf, b.orderBy)
 	appendLimitClause(&buf, b.limit)
 
@@ -329,6 +336,14 @@ func appendOrderByClause(buf *strings.Builder, orderBy []string) {
 	}
 	buf.WriteString(" ORDER BY ")
 	buf.WriteString(strings.Join(orderBy, ", "))
+}
+
+func appendGroupByClause(buf *strings.Builder, groupBy []string) {
+	if len(groupBy) == 0 {
+		return
+	}
+	buf.WriteString(" GROUP BY ")
+	buf.WriteString(strings.Join(groupBy, ", "))
 }
 
 func appendLimitClause(buf *strings.Builder, limit int) {

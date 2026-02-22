@@ -76,6 +76,74 @@ func (r *SquadRepository) GetByUserAndLeague(ctx context.Context, userID, league
 	}, true, nil
 }
 
+func (r *SquadRepository) ListByLeague(ctx context.Context, leagueID string) ([]fantasy.Squad, error) {
+	squadsQuery, squadsArgs, err := qb.Select("*").From("fantasy_squads").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list squads by league query: %w", err)
+	}
+
+	var squadRows []squadTableModel
+	if err := r.db.SelectContext(ctx, &squadRows, squadsQuery, squadsArgs...); err != nil {
+		return nil, fmt.Errorf("list squads by league: %w", err)
+	}
+	if len(squadRows) == 0 {
+		return []fantasy.Squad{}, nil
+	}
+
+	squadIDs := make([]string, 0, len(squadRows))
+	for _, row := range squadRows {
+		squadIDs = append(squadIDs, row.PublicID)
+	}
+
+	picksQuery, picksArgs, err := qb.Select("*").From("fantasy_squad_picks").
+		Where(
+			qb.In("squad_public_id", stringSliceToAny(squadIDs)),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("squad_public_id", "id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list squad picks by league query: %w", err)
+	}
+
+	var pickRows []squadPickTableModel
+	if err := r.db.SelectContext(ctx, &pickRows, picksQuery, picksArgs...); err != nil {
+		return nil, fmt.Errorf("list squad picks by league: %w", err)
+	}
+
+	picksBySquadID := make(map[string][]fantasy.SquadPick, len(squadRows))
+	for _, row := range pickRows {
+		picksBySquadID[row.SquadID] = append(picksBySquadID[row.SquadID], fantasy.SquadPick{
+			PlayerID: row.PlayerID,
+			TeamID:   row.TeamID,
+			Position: player.Position(row.Position),
+			Price:    row.Price,
+		})
+	}
+
+	out := make([]fantasy.Squad, 0, len(squadRows))
+	for _, row := range squadRows {
+		out = append(out, fantasy.Squad{
+			ID:        row.PublicID,
+			UserID:    row.UserID,
+			LeagueID:  row.LeagueID,
+			Name:      row.Name,
+			Picks:     append([]fantasy.SquadPick(nil), picksBySquadID[row.PublicID]...),
+			BudgetCap: row.BudgetCap,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		})
+	}
+
+	return out, nil
+}
+
 func (r *SquadRepository) Upsert(ctx context.Context, squad fantasy.Squad) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {

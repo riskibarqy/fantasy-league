@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS trg_custom_league_standings_touch_updated_at ON custom_league_standings;
+DROP TABLE IF EXISTS custom_league_standings;

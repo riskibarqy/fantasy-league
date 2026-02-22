@@ -17,7 +17,7 @@ This project uses a pragmatic Clean Architecture split:
 - Multi-league foundation (`/v1/leagues`)
 - Dashboard endpoint for fantasy frontend
 - Team, fixture, and player listing per league
-- PAT lineup endpoints (11 starters + 5 substitutes)
+- PAT lineup endpoints (11 starters + 4 substitutes)
 - Authenticated squad creation/upsert
 - Swagger/OpenAPI docs endpoint (`/docs`, `/openapi.yaml`)
 - Uptrace/OpenTelemetry integration (configurable via env)
@@ -126,13 +126,20 @@ PPROF_URL=http://localhost:6060/debug/pprof make pprof-heap
 
 Migration files are in:
 
-- `db/migrations/000001_init_schema.up.sql`
-- `db/migrations/000001_init_schema.down.sql`
+- `db/migrations/1771776000_create_touch_updated_at_function.up.sql`
+- `db/migrations/1771776001_create_leagues.up.sql`
 
 Run migrations (requires `golang-migrate` CLI and a PostgreSQL `DB_URL`):
 
 ```bash
 make migrate-up
+```
+
+Or use the built-in Go migration runner (no external migrate CLI):
+
+```bash
+make migrate-app-up
+make migrate-app-version
 ```
 
 Rollback one step:
@@ -147,7 +154,7 @@ Example:
 DB_URL='postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable' make migrate-up
 ```
 
-Default custom league data (global + country defaults) is now seeded as part of migration `000008_seed_default_custom_leagues`, so `make migrate-up` is enough.
+Default custom league data (global + country defaults) is now seeded as part of migration `1771776027_seed_default_custom_leagues`, so `make migrate-up` is enough.
 
 ## Fly.io Deployment
 
@@ -181,6 +188,20 @@ make fly-secrets
 ```bash
 make fly-deploy
 ```
+
+4. Run schema migrations on Fly:
+
+```bash
+export FLY_APP='fantasy-league'
+make fly-migrate-up
+make fly-migrate-version
+```
+
+The Fly image includes:
+
+- `/app/fantasy-league` (API)
+- `/app/fantasy-league-migrate` (migration runner)
+- `/app/db/migrations` (SQL files)
 
 Cost-focused defaults in `fly.toml`:
 
@@ -242,7 +263,7 @@ Configured files:
 - `GET /healthz`
 - `GET /docs` (Swagger UI, when enabled)
 - `GET /openapi.yaml` (OpenAPI spec, when enabled)
-- `GET /v1/dashboard`
+- `GET /v1/dashboard` (Bearer token required)
 - `GET /v1/leagues`
 - `GET /v1/leagues/{leagueID}/teams`
 - `GET /v1/leagues/{leagueID}/fixtures`
@@ -258,4 +279,4 @@ Configured files:
 - `POST /v1/fantasy/squads/me/players` (Bearer token required)
 
 Note:
-- Current lineup endpoints are bound to an internal demo user (`demo-manager`) to match FE integration path while auth wiring is finalized.
+- Responses use a Google-style envelope with `apiVersion` and `data` / `error`.

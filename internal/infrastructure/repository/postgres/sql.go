@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func isNotFound(err error) bool {
@@ -50,6 +51,45 @@ func nullInt64ToIntPtr(v sql.NullInt64) *int {
 
 	value := int(v.Int64)
 	return &value
+}
+
+func nullTimeToTimePtr(v sql.NullTime) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+
+	value := v.Time
+	return &value
+}
+
+func timeToUnix(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UTC().Unix()
+}
+
+func unixToTime(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(value, 0).UTC()
+}
+
+func nullableUnix(value *time.Time) *int64 {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	v := value.UTC().Unix()
+	return &v
+}
+
+func nullUnixToTimePtr(value sql.NullInt64) *time.Time {
+	if !value.Valid || value.Int64 <= 0 {
+		return nil
+	}
+	v := time.Unix(value.Int64, 0).UTC()
+	return &v
 }
 
 func nullStringToInt64(v sql.NullString) int64 {

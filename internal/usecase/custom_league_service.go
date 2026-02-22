@@ -36,20 +36,27 @@ type CustomLeagueService struct {
 	leagueRepo league.Repository
 	squadRepo  fantasy.Repository
 	groupRepo  customleague.Repository
+	scorer     leagueScoringUpdater
 	idGen      idgen.Generator
 	now        func() time.Time
+}
+
+type leagueScoringUpdater interface {
+	EnsureLeagueUpToDate(ctx context.Context, leagueID string) error
 }
 
 func NewCustomLeagueService(
 	leagueRepo league.Repository,
 	squadRepo fantasy.Repository,
 	groupRepo customleague.Repository,
+	scorer leagueScoringUpdater,
 	idGen idgen.Generator,
 ) *CustomLeagueService {
 	return &CustomLeagueService{
 		leagueRepo: leagueRepo,
 		squadRepo:  squadRepo,
 		groupRepo:  groupRepo,
+		scorer:     scorer,
 		idGen:      idGen,
 		now:        time.Now,
 	}
@@ -125,6 +132,18 @@ func (s *CustomLeagueService) ListMyGroups(ctx context.Context, userID string) (
 	groups, err := s.groupRepo.ListGroupsByUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list custom leagues by user: %w", err)
+	}
+	if s.scorer != nil {
+		seenLeagues := make(map[string]struct{})
+		for _, group := range groups {
+			if _, ok := seenLeagues[group.LeagueID]; ok {
+				continue
+			}
+			seenLeagues[group.LeagueID] = struct{}{}
+			if err := s.scorer.EnsureLeagueUpToDate(ctx, group.LeagueID); err != nil {
+				return nil, fmt.Errorf("update custom league standings for league=%s: %w", group.LeagueID, err)
+			}
+		}
 	}
 
 	standings, err := s.groupRepo.ListStandingsByUser(ctx, userID)
@@ -273,12 +292,25 @@ func (s *CustomLeagueService) GetStandings(ctx context.Context, userID, groupID 
 		return nil, fmt.Errorf("%w: group id is required", ErrInvalidInput)
 	}
 
+	group, exists, err := s.groupRepo.GetGroupByID(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("get custom league by id: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%w: custom league not found", ErrNotFound)
+	}
+
 	isMember, err := s.groupRepo.IsGroupMember(ctx, groupID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("check custom league member: %w", err)
 	}
 	if !isMember {
 		return nil, fmt.Errorf("%w: you are not a member of this custom league", ErrUnauthorized)
+	}
+	if s.scorer != nil {
+		if err := s.scorer.EnsureLeagueUpToDate(ctx, group.LeagueID); err != nil {
+			return nil, fmt.Errorf("update custom league standings for league=%s: %w", group.LeagueID, err)
+		}
 	}
 
 	items, err := s.groupRepo.ListStandingsByGroup(ctx, groupID)

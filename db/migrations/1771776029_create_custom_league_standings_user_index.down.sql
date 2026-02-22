@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_custom_league_standings_user_active;

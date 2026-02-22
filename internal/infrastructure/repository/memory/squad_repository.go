@@ -28,6 +28,20 @@ func (r *SquadRepository) GetByUserAndLeague(_ context.Context, userID, leagueID
 	return cloneSquad(squad), true, nil
 }
 
+func (r *SquadRepository) ListByLeague(_ context.Context, leagueID string) ([]fantasy.Squad, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]fantasy.Squad, 0)
+	for _, item := range r.items {
+		if item.LeagueID != leagueID {
+			continue
+		}
+		out = append(out, cloneSquad(item))
+	}
+	return out, nil
+}
+
 func (r *SquadRepository) Upsert(_ context.Context, squad fantasy.Squad) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

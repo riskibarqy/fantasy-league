@@ -45,6 +45,30 @@ func (r *LineupRepository) GetByUserAndLeague(ctx context.Context, userID, leagu
 	return lineupFromRow(row), true, nil
 }
 
+func (r *LineupRepository) ListByLeague(ctx context.Context, leagueID string) ([]lineup.Lineup, error) {
+	query, args, err := lineupBaseSelectBuilder().
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list lineups by league query: %w", err)
+	}
+
+	var rows []lineupTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list lineups by league: %w", err)
+	}
+
+	out := make([]lineup.Lineup, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, lineupFromRow(row))
+	}
+	return out, nil
+}
+
 func (r *LineupRepository) getByUserAndLeagueSingleParam(ctx context.Context, userID, leagueID string) (lineup.Lineup, bool, error) {
 	query, _, err := lineupBaseSelectBuilder().
 		Where(

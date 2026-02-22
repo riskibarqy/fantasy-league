@@ -3,11 +3,12 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/riskibarqy/fantasy-league/internal/domain/customleague"
+	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
-	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
-	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 )
 
 type Dashboard struct {
@@ -21,22 +22,29 @@ type Dashboard struct {
 
 type DashboardService struct {
 	leagueRepo  league.Repository
-	playerRepo  player.Repository
 	fixtureRepo fixture.Repository
-	lineupRepo  lineup.Repository
+	squadRepo   fantasy.Repository
+	groupRepo   customleague.Repository
+	scoringSvc  dashboardScoringProvider
+}
+
+type dashboardScoringProvider interface {
+	GetUserLeagueSummary(ctx context.Context, leagueID, userID string) (int, int, error)
 }
 
 func NewDashboardService(
 	leagueRepo league.Repository,
-	playerRepo player.Repository,
 	fixtureRepo fixture.Repository,
-	lineupRepo lineup.Repository,
+	squadRepo fantasy.Repository,
+	groupRepo customleague.Repository,
+	scoringSvc dashboardScoringProvider,
 ) *DashboardService {
 	return &DashboardService{
 		leagueRepo:  leagueRepo,
-		playerRepo:  playerRepo,
 		fixtureRepo: fixtureRepo,
-		lineupRepo:  lineupRepo,
+		squadRepo:   squadRepo,
+		groupRepo:   groupRepo,
+		scoringSvc:  scoringSvc,
 	}
 }
 
@@ -62,44 +70,123 @@ func (s *DashboardService) Get(ctx context.Context, userID string) (Dashboard, e
 		return Dashboard{}, fmt.Errorf("list fixtures: %w", err)
 	}
 
-	gameweek := 1
-	if len(fixtures) > 0 {
-		gameweek = fixtures[0].Gameweek
-		for _, f := range fixtures {
-			if f.Gameweek < gameweek {
-				gameweek = f.Gameweek
-			}
+	gameweek := resolveDashboardGameweek(fixtures, time.Now().UTC())
+
+	budgetCap := fantasy.DefaultRules().BudgetCap
+	teamValue := 0.0
+	budget := float64(budgetCap) / 10.0
+	squad, exists, err := s.squadRepo.GetByUserAndLeague(ctx, userID, selected.ID)
+	if err != nil {
+		return Dashboard{}, fmt.Errorf("get squad for dashboard: %w", err)
+	}
+	if exists {
+		usedBudget := squadCost(squad)
+		budgetCap = squad.BudgetCap
+		teamValue = float64(usedBudget) / 10.0
+		if budgetCap > usedBudget {
+			budget = float64(budgetCap-usedBudget) / 10.0
+		} else {
+			budget = 0
 		}
 	}
 
-	teamValue := 98.7
-	stored, exists, err := s.lineupRepo.GetByUserAndLeague(ctx, userID, selected.ID)
-	if err != nil {
-		return Dashboard{}, fmt.Errorf("get lineup for dashboard: %w", err)
-	}
-	if exists {
-		allIDs := []string{stored.GoalkeeperID}
-		allIDs = append(allIDs, stored.DefenderIDs...)
-		allIDs = append(allIDs, stored.MidfielderIDs...)
-		allIDs = append(allIDs, stored.ForwardIDs...)
-		allIDs = append(allIDs, stored.SubstituteIDs...)
-
-		players, pErr := s.playerRepo.GetByIDs(ctx, selected.ID, allIDs)
-		if pErr == nil && len(players) > 0 {
-			var totalPrice int64
-			for _, p := range players {
-				totalPrice += p.Price
+	totalPoints := 0
+	rank := 0
+	if s.scoringSvc != nil {
+		points, userRank, scoreErr := s.scoringSvc.GetUserLeagueSummary(ctx, selected.ID, userID)
+		if scoreErr != nil {
+			return Dashboard{}, fmt.Errorf("get scoring summary for dashboard: %w", scoreErr)
+		}
+		totalPoints = points
+		rank = userRank
+	} else {
+		defaultGroups, groupErr := s.groupRepo.ListDefaultGroupsByLeague(ctx, selected.ID)
+		if groupErr != nil {
+			return Dashboard{}, fmt.Errorf("list default groups for dashboard: %w", groupErr)
+		}
+		if len(defaultGroups) > 0 {
+			standings, standingsErr := s.groupRepo.ListStandingsByGroup(ctx, defaultGroups[0].ID)
+			if standingsErr != nil {
+				return Dashboard{}, fmt.Errorf("list standings for dashboard: %w", standingsErr)
 			}
-			teamValue = float64(totalPrice) / 10.0
+			for _, standing := range standings {
+				if standing.UserID == userID {
+					totalPoints = standing.Points
+					rank = standing.Rank
+					break
+				}
+			}
 		}
 	}
 
 	return Dashboard{
 		Gameweek:         gameweek,
-		Budget:           100.0,
+		Budget:           budget,
 		TeamValue:        teamValue,
-		TotalPoints:      0,
-		Rank:             0,
+		TotalPoints:      totalPoints,
+		Rank:             rank,
 		SelectedLeagueID: selected.ID,
 	}, nil
+}
+
+func squadCost(squad fantasy.Squad) int64 {
+	total := int64(0)
+	for _, pick := range squad.Picks {
+		total += pick.Price
+	}
+	return total
+}
+
+func resolveDashboardGameweek(fixtures []fixture.Fixture, now time.Time) int {
+	if len(fixtures) == 0 {
+		return 1
+	}
+
+	liveMin := 0
+	upcomingMin := 0
+	lastKnown := 0
+
+	for _, item := range fixtures {
+		if item.Gameweek <= 0 {
+			continue
+		}
+		if item.Gameweek > lastKnown {
+			lastKnown = item.Gameweek
+		}
+
+		status := fixture.NormalizeStatus(item.Status)
+		if fixture.IsLiveStatus(status) {
+			if liveMin == 0 || item.Gameweek < liveMin {
+				liveMin = item.Gameweek
+			}
+			continue
+		}
+		if fixture.IsFinishedStatus(status) || fixture.IsCancelledLikeStatus(status) {
+			continue
+		}
+
+		if item.KickoffAt.IsZero() || !item.KickoffAt.Before(now) {
+			if upcomingMin == 0 || item.Gameweek < upcomingMin {
+				upcomingMin = item.Gameweek
+			}
+			continue
+		}
+
+		// Match is in the past and still not finished/cancelled; treat as active gameweek.
+		if upcomingMin == 0 || item.Gameweek < upcomingMin {
+			upcomingMin = item.Gameweek
+		}
+	}
+
+	if liveMin > 0 {
+		return liveMin
+	}
+	if upcomingMin > 0 {
+		return upcomingMin
+	}
+	if lastKnown > 0 {
+		return lastKnown
+	}
+
+	return 1
 }

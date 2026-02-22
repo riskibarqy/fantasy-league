@@ -181,6 +181,31 @@ func (r *CustomLeagueRepository) GetGroupByInviteCode(ctx context.Context, invit
 	return customLeagueFromRow(row), true, nil
 }
 
+func (r *CustomLeagueRepository) ListGroupsByLeague(ctx context.Context, leagueID string) ([]customleague.Group, error) {
+	query, args, err := qb.Select("*").
+		From("custom_leagues").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list custom leagues by league query: %w", err)
+	}
+
+	var rows []customLeagueTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list custom leagues by league: %w", err)
+	}
+
+	out := make([]customleague.Group, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, customLeagueFromRow(row))
+	}
+	return out, nil
+}
+
 func (r *CustomLeagueRepository) ListGroupsByUser(ctx context.Context, userID string) ([]customleague.Group, error) {
 	query, args, err := qb.Select("cl.*").
 		From("custom_leagues cl JOIN custom_league_members clm ON clm.custom_league_public_id = cl.public_id").
@@ -266,6 +291,38 @@ func (r *CustomLeagueRepository) ListDefaultGroupsByLeagueAndCountry(ctx context
 	return out, nil
 }
 
+func (r *CustomLeagueRepository) ListMembershipsByGroup(ctx context.Context, groupID string) ([]customleague.Membership, error) {
+	query, args, err := qb.Select("*").
+		From("custom_league_members").
+		Where(
+			qb.Eq("custom_league_public_id", groupID),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("joined_at", "id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list custom league memberships query: %w", err)
+	}
+
+	var rows []customLeagueMemberTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list custom league memberships: %w", err)
+	}
+
+	out := make([]customleague.Membership, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, customleague.Membership{
+			GroupID:   row.GroupID,
+			UserID:    row.UserID,
+			SquadID:   row.SquadID,
+			JoinedAt:  row.JoinedAt,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
 func (r *CustomLeagueRepository) ListStandingsByUser(ctx context.Context, userID string) ([]customleague.Standing, error) {
 	query, args, err := qb.Select("*").
 		From("custom_league_standings").
@@ -338,6 +395,9 @@ DO UPDATE SET
 	standingQuery, standingArgs, err := qb.InsertModel("custom_league_standings", standingInsertModel, `ON CONFLICT (custom_league_public_id, user_id) WHERE deleted_at IS NULL
 DO UPDATE SET
     fantasy_squad_public_id = EXCLUDED.fantasy_squad_public_id,
+    points = EXCLUDED.points,
+    rank = EXCLUDED.rank,
+    last_calculated_at = EXCLUDED.last_calculated_at,
     deleted_at = NULL`)
 	if err != nil {
 		return fmt.Errorf("build upsert custom league standing query: %w", err)
@@ -348,6 +408,50 @@ DO UPDATE SET
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit upsert custom league member tx: %w", err)
+	}
+
+	return nil
+}
+
+func (r *CustomLeagueRepository) UpdateStandings(ctx context.Context, groupID string, standings []customleague.Standing) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx update standings: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, standing := range standings {
+		insertModel := customLeagueStandingInsertModel{
+			GroupID:          groupID,
+			UserID:           standing.UserID,
+			SquadID:          standing.SquadID,
+			Points:           standing.Points,
+			Rank:             standing.Rank,
+			LastCalculatedAt: standing.LastCalculatedAt,
+		}
+		query, args, err := qb.InsertModel("custom_league_standings", insertModel, `ON CONFLICT (custom_league_public_id, user_id) WHERE deleted_at IS NULL
+DO UPDATE SET
+    fantasy_squad_public_id = EXCLUDED.fantasy_squad_public_id,
+    points = EXCLUDED.points,
+    previous_rank = CASE
+        WHEN custom_league_standings.rank > 0 THEN custom_league_standings.rank
+        ELSE custom_league_standings.previous_rank
+    END,
+    rank = EXCLUDED.rank,
+    last_calculated_at = EXCLUDED.last_calculated_at,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build update standing query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("update standing user=%s group=%s: %w", standing.UserID, groupID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update standings tx: %w", err)
 	}
 
 	return nil

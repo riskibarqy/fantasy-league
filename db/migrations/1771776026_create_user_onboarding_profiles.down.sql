@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS trg_user_onboarding_profiles_touch_updated_at ON user_onboarding_profiles;
+DROP TABLE IF EXISTS user_onboarding_profiles;

@@ -50,6 +50,17 @@ type customLeagueMemberInsertModel struct {
 	JoinedAt time.Time `db:"joined_at"`
 }
 
+type customLeagueMemberTableModel struct {
+	ID        int64      `db:"id"`
+	GroupID   string     `db:"custom_league_public_id"`
+	UserID    string     `db:"user_id"`
+	SquadID   string     `db:"fantasy_squad_public_id"`
+	JoinedAt  time.Time  `db:"joined_at"`
+	CreatedAt time.Time  `db:"created_at"`
+	UpdatedAt time.Time  `db:"updated_at"`
+	DeletedAt *time.Time `db:"deleted_at"`
+}
+
 type customLeagueStandingInsertModel struct {
 	GroupID          string     `db:"custom_league_public_id"`
 	UserID           string     `db:"user_id"`

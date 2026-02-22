@@ -42,3 +42,17 @@ type FixtureEvent struct {
 	Minute         int
 	ExtraMinute    int
 }
+
+type FixtureStat struct {
+	FixtureID     string
+	PlayerID      string
+	TeamID        string
+	MinutesPlayed int
+	Goals         int
+	Assists       int
+	CleanSheet    bool
+	YellowCards   int
+	RedCards      int
+	Saves         int
+	FantasyPoints int
+}

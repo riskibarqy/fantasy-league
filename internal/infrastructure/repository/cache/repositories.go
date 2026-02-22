@@ -213,11 +213,37 @@ func (r *LineupRepository) GetByUserAndLeague(ctx context.Context, userID, leagu
 	return cloneLineup(cached.value), cached.exists, nil
 }
 
+func (r *LineupRepository) ListByLeague(ctx context.Context, leagueID string) ([]lineup.Lineup, error) {
+	key := "lineup:list:league:" + leagueID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListByLeague(ctx, leagueID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]lineup.Lineup, 0, len(items))
+		for _, item := range items {
+			out = append(out, cloneLineup(item))
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]lineup.Lineup)
+	out := make([]lineup.Lineup, 0, len(items))
+	for _, item := range items {
+		out = append(out, cloneLineup(item))
+	}
+	return out, nil
+}
+
 func (r *LineupRepository) Upsert(ctx context.Context, item lineup.Lineup) error {
 	if err := r.next.Upsert(ctx, item); err != nil {
 		return err
 	}
 	r.cache.Delete(ctx, lineupKey(item.UserID, item.LeagueID))
+	r.cache.Delete(ctx, "lineup:list:league:"+item.LeagueID)
 	return nil
 }
 
@@ -268,11 +294,37 @@ func (r *SquadRepository) GetByUserAndLeague(ctx context.Context, userID, league
 	return cloneSquad(cached.value), cached.exists, nil
 }
 
+func (r *SquadRepository) ListByLeague(ctx context.Context, leagueID string) ([]fantasy.Squad, error) {
+	key := "squad:list:league:" + leagueID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListByLeague(ctx, leagueID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]fantasy.Squad, 0, len(items))
+		for _, item := range items {
+			out = append(out, cloneSquad(item))
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]fantasy.Squad)
+	out := make([]fantasy.Squad, 0, len(items))
+	for _, item := range items {
+		out = append(out, cloneSquad(item))
+	}
+	return out, nil
+}
+
 func (r *SquadRepository) Upsert(ctx context.Context, squad fantasy.Squad) error {
 	if err := r.next.Upsert(ctx, squad); err != nil {
 		return err
 	}
 	r.cache.Delete(ctx, squadKey(squad.UserID, squad.LeagueID))
+	r.cache.Delete(ctx, "squad:list:league:"+squad.LeagueID)
 	return nil
 }
 
@@ -351,6 +403,26 @@ func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.
 	return append([]playerstats.FixtureEvent(nil), items...), nil
 }
 
+func (r *PlayerStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []playerstats.FixtureStat) error {
+	if err := r.next.UpsertFixtureStats(ctx, fixtureID, stats); err != nil {
+		return err
+	}
+	r.cache.DeletePrefix(ctx, "player-stats:")
+	return nil
+}
+
+func (r *PlayerStatsRepository) ReplaceFixtureEvents(ctx context.Context, fixtureID string, events []playerstats.FixtureEvent) error {
+	if err := r.next.ReplaceFixtureEvents(ctx, fixtureID, events); err != nil {
+		return err
+	}
+	r.cache.DeletePrefix(ctx, "player-stats:")
+	return nil
+}
+
+func (r *PlayerStatsRepository) GetFantasyPointsByLeagueAndGameweek(ctx context.Context, leagueID string, gameweek int) (map[string]int, error) {
+	return r.next.GetFantasyPointsByLeagueAndGameweek(ctx, leagueID, gameweek)
+}
+
 type TeamStatsRepository struct {
 	next  teamstats.Repository
 	cache *basecache.Store
@@ -394,6 +466,14 @@ func (r *TeamStatsRepository) ListMatchHistoryByLeagueAndTeam(ctx context.Contex
 	return append([]teamstats.MatchHistory(nil), items...), nil
 }
 
+func (r *TeamStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []teamstats.FixtureStat) error {
+	if err := r.next.UpsertFixtureStats(ctx, fixtureID, stats); err != nil {
+		return err
+	}
+	r.cache.DeletePrefix(ctx, "team-stats:")
+	return nil
+}
+
 type CustomLeagueRepository struct {
 	next  customleague.Repository
 	cache *basecache.Store
@@ -410,6 +490,7 @@ func (r *CustomLeagueRepository) CreateGroup(ctx context.Context, group customle
 
 	r.cache.Delete(ctx, customLeagueByIDKey(group.ID))
 	r.cache.Delete(ctx, customLeagueByInviteKey(group.InviteCode))
+	r.cache.Delete(ctx, "custom-league:list:league:"+group.LeagueID)
 	r.cache.Delete(ctx, customLeagueDefaultByLeagueKey(group.LeagueID))
 	if group.CountryCode != "" {
 		r.cache.Delete(ctx, customLeagueDefaultByLeagueCountryKey(group.LeagueID, group.CountryCode))
@@ -427,6 +508,7 @@ func (r *CustomLeagueRepository) UpdateGroupName(ctx context.Context, groupID, o
 	r.cache.Delete(ctx, customLeagueByIDKey(groupID))
 	r.cache.DeletePrefix(ctx, customLeagueListByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueByInvitePrefix)
+	r.cache.DeletePrefix(ctx, "custom-league:list:league:")
 	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeaguePrefix)
 	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeagueCountryPrefix)
 	return nil
@@ -439,6 +521,7 @@ func (r *CustomLeagueRepository) SoftDeleteGroup(ctx context.Context, groupID, o
 
 	r.cache.Delete(ctx, customLeagueByIDKey(groupID))
 	r.cache.DeletePrefix(ctx, customLeagueByInvitePrefix)
+	r.cache.DeletePrefix(ctx, "custom-league:list:league:")
 	r.cache.DeletePrefix(ctx, customLeagueListByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeaguePrefix)
 	r.cache.DeletePrefix(ctx, customLeagueDefaultByLeagueCountryPrefix)
@@ -480,6 +563,23 @@ func (r *CustomLeagueRepository) GetGroupByInviteCode(ctx context.Context, invit
 	return cached.group, cached.exists, nil
 }
 
+func (r *CustomLeagueRepository) ListGroupsByLeague(ctx context.Context, leagueID string) ([]customleague.Group, error) {
+	key := "custom-league:list:league:" + leagueID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListGroupsByLeague(ctx, leagueID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]customleague.Group(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]customleague.Group)
+	return append([]customleague.Group(nil), items...), nil
+}
+
 func (r *CustomLeagueRepository) ListGroupsByUser(ctx context.Context, userID string) ([]customleague.Group, error) {
 	v, err := r.cache.GetOrLoad(ctx, customLeagueListByUserKey(userID), func(ctx context.Context) (any, error) {
 		items, err := r.next.ListGroupsByUser(ctx, userID)
@@ -494,6 +594,23 @@ func (r *CustomLeagueRepository) ListGroupsByUser(ctx context.Context, userID st
 
 	items, _ := v.([]customleague.Group)
 	return append([]customleague.Group(nil), items...), nil
+}
+
+func (r *CustomLeagueRepository) ListMembershipsByGroup(ctx context.Context, groupID string) ([]customleague.Membership, error) {
+	key := "custom-league:members:group:" + groupID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListMembershipsByGroup(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]customleague.Membership(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]customleague.Membership)
+	return append([]customleague.Membership(nil), items...), nil
 }
 
 func (r *CustomLeagueRepository) ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]customleague.Group, error) {
@@ -551,9 +668,23 @@ func (r *CustomLeagueRepository) UpsertMembershipAndStanding(ctx context.Context
 	}
 
 	r.cache.Delete(ctx, customLeagueListByUserKey(membership.UserID))
+	r.cache.DeletePrefix(ctx, "custom-league:list:league:")
+	r.cache.Delete(ctx, "custom-league:members:group:"+membership.GroupID)
 	r.cache.Delete(ctx, customLeagueIsMemberKey(membership.GroupID, membership.UserID))
 	r.cache.Delete(ctx, customLeagueStandingsKey(membership.GroupID))
 	r.cache.Delete(ctx, customLeagueStandingsByUserKey(membership.UserID))
+	return nil
+}
+
+func (r *CustomLeagueRepository) UpdateStandings(ctx context.Context, groupID string, standings []customleague.Standing) error {
+	if err := r.next.UpdateStandings(ctx, groupID, standings); err != nil {
+		return err
+	}
+
+	r.cache.Delete(ctx, customLeagueStandingsKey(groupID))
+	r.cache.Delete(ctx, "custom-league:members:group:"+groupID)
+	r.cache.DeletePrefix(ctx, customLeagueStandingsByUserPrefix)
+	r.cache.DeletePrefix(ctx, customLeagueListByUserPrefix)
 	return nil
 }
 

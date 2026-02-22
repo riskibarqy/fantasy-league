@@ -49,6 +49,7 @@ type SquadService struct {
 	leagueRepo league.Repository
 	playerRepo player.Repository
 	squadRepo  fantasy.Repository
+	scorer     leagueScoringUpdater
 	rules      fantasy.Rules
 	idGen      idgen.Generator
 	logger     *slog.Logger
@@ -83,6 +84,10 @@ func (s *SquadService) SetDefaultLeagueJoiner(joiner DefaultLeagueJoiner) {
 	s.joiner = joiner
 }
 
+func (s *SquadService) SetScoringUpdater(scorer leagueScoringUpdater) {
+	s.scorer = scorer
+}
+
 func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) (fantasy.Squad, error) {
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
@@ -103,6 +108,11 @@ func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) 
 
 	if err := s.validateLeague(ctx, input.LeagueID); err != nil {
 		return fantasy.Squad{}, err
+	}
+	if s.scorer != nil {
+		if err := s.scorer.EnsureLeagueUpToDate(ctx, input.LeagueID); err != nil {
+			return fantasy.Squad{}, fmt.Errorf("ensure league scoring before squad upsert: %w", err)
+		}
 	}
 
 	playerIDs, err := cleanPlayerIDs(input.PlayerIDs)
@@ -245,6 +255,11 @@ func (s *SquadService) AddPlayerToSquad(ctx context.Context, input AddPlayerToSq
 
 	if err := s.validateLeague(ctx, input.LeagueID); err != nil {
 		return fantasy.Squad{}, err
+	}
+	if s.scorer != nil {
+		if err := s.scorer.EnsureLeagueUpToDate(ctx, input.LeagueID); err != nil {
+			return fantasy.Squad{}, fmt.Errorf("ensure league scoring before add player: %w", err)
+		}
 	}
 
 	players, err := s.playerRepo.GetByIDs(ctx, input.LeagueID, []string{input.PlayerID})
