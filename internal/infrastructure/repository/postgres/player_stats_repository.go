@@ -122,6 +122,57 @@ func (r *PlayerStatsRepository) ListMatchHistoryByLeagueAndPlayer(ctx context.Co
 	return out, nil
 }
 
+func (r *PlayerStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]playerstats.FixtureStat, error) {
+	query, args, err := qb.Select(
+		"pfs.fixture_public_id",
+		"pfs.player_public_id",
+		"pfs.team_public_id",
+		"pfs.minutes_played",
+		"pfs.goals",
+		"pfs.assists",
+		"pfs.clean_sheet",
+		"pfs.yellow_cards",
+		"pfs.red_cards",
+		"pfs.saves",
+		"pfs.fantasy_points",
+	).From("player_fixture_stats pfs JOIN fixtures f ON f.public_id = pfs.fixture_public_id").
+		Where(
+			qb.Eq("f.league_public_id", leagueID),
+			qb.Eq("pfs.fixture_public_id", fixtureID),
+			qb.IsNull("pfs.deleted_at"),
+			qb.IsNull("f.deleted_at"),
+		).
+		OrderBy("pfs.fantasy_points DESC", "pfs.minutes_played DESC", "pfs.id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list fixture player stats query: %w", err)
+	}
+
+	var rows []fixtureStatRow
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list fixture player stats: %w", err)
+	}
+
+	out := make([]playerstats.FixtureStat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, playerstats.FixtureStat{
+			FixtureID:     row.FixtureID,
+			PlayerID:      row.PlayerID,
+			TeamID:        row.TeamID,
+			MinutesPlayed: row.MinutesPlayed,
+			Goals:         row.Goals,
+			Assists:       row.Assists,
+			CleanSheet:    row.CleanSheet,
+			YellowCards:   row.YellowCards,
+			RedCards:      row.RedCards,
+			Saves:         row.Saves,
+			FantasyPoints: row.FantasyPoints,
+		})
+	}
+
+	return out, nil
+}
+
 func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]playerstats.FixtureEvent, error) {
 	query, args, err := qb.Select(
 		"fe.event_id",
@@ -360,6 +411,20 @@ type fixtureEventRow struct {
 	Detail         sql.NullString `db:"detail"`
 	Minute         int            `db:"minute"`
 	ExtraMinute    int            `db:"extra_minute"`
+}
+
+type fixtureStatRow struct {
+	FixtureID     string `db:"fixture_public_id"`
+	PlayerID      string `db:"player_public_id"`
+	TeamID        string `db:"team_public_id"`
+	MinutesPlayed int    `db:"minutes_played"`
+	Goals         int    `db:"goals"`
+	Assists       int    `db:"assists"`
+	CleanSheet    bool   `db:"clean_sheet"`
+	YellowCards   int    `db:"yellow_cards"`
+	RedCards      int    `db:"red_cards"`
+	Saves         int    `db:"saves"`
+	FantasyPoints int    `db:"fantasy_points"`
 }
 
 type playerFixtureStatInsertModel struct {

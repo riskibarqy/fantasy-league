@@ -14,6 +14,41 @@ type Repository struct {
 	mock.Mock
 }
 
+// GetByID provides a mock function with given fields: ctx, leagueID, fixtureID
+func (_m *Repository) GetByID(ctx context.Context, leagueID string, fixtureID string) (fixture.Fixture, bool, error) {
+	ret := _m.Called(ctx, leagueID, fixtureID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByID")
+	}
+
+	var r0 fixture.Fixture
+	var r1 bool
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (fixture.Fixture, bool, error)); ok {
+		return rf(ctx, leagueID, fixtureID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) fixture.Fixture); ok {
+		r0 = rf(ctx, leagueID, fixtureID)
+	} else {
+		r0 = ret.Get(0).(fixture.Fixture)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) bool); ok {
+		r1 = rf(ctx, leagueID, fixtureID)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, string) error); ok {
+		r2 = rf(ctx, leagueID, fixtureID)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
 // ListByLeague provides a mock function with given fields: ctx, leagueID
 func (_m *Repository) ListByLeague(ctx context.Context, leagueID string) ([]fixture.Fixture, error) {
 	ret := _m.Called(ctx, leagueID)

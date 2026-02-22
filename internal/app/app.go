@@ -52,6 +52,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
 	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
+	rawDataRepo := postgresrepo.NewRawDataRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
 	var scoringRepo scoringdomain.Repository = postgresrepo.NewScoringRepository(db)
@@ -78,7 +79,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	scoringSvc := usecase.NewScoringService(fixtureRepo, squadRepo, lineupRepo, playerStatsRepo, customLeagueRepo, scoringRepo)
 	dashboardSvc := usecase.NewDashboardService(leagueRepo, fixtureRepo, squadRepo, customLeagueRepo, scoringSvc)
 	customLeagueSvc := usecase.NewCustomLeagueService(leagueRepo, squadRepo, customLeagueRepo, scoringSvc, idgen.NewRandomGenerator())
-	ingestionSvc := usecase.NewIngestionService(fixtureWriter, playerStatsRepo, teamStatsRepo)
+	ingestionSvc := usecase.NewIngestionService(fixtureWriter, playerStatsRepo, teamStatsRepo, rawDataRepo)
 	squadSvc := usecase.NewSquadService(
 		leagueRepo,
 		playerRepo,

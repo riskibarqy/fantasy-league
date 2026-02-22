@@ -147,6 +147,63 @@ func TestOnboardingService_Complete(t *testing.T) {
 	}
 }
 
+func TestOnboardingService_Complete_DoesNotOverrideCountryWithZZ(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	teamRepo := memory.NewTeamRepository(memory.SeedTeams())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	squadRepo := memory.NewSquadRepository()
+	lineupRepo := memory.NewLineupRepository()
+	profileRepo := newInMemoryOnboardingProfileRepo()
+	profileRepo.profiles["user-1"] = onboarding.Profile{
+		UserID:      "user-1",
+		CountryCode: "ID",
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	squadSvc := NewSquadService(
+		leagueRepo,
+		playerRepo,
+		squadRepo,
+		fantasy.DefaultRules(),
+		staticIDGenerator{id: "squad-123"},
+		logger,
+	)
+	lineupSvc := NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
+
+	service := NewOnboardingService(teamRepo, profileRepo, squadSvc, lineupSvc, nil)
+	joiner := &recordingOnboardingJoiner{}
+	service.customLeagueJoiner = joiner
+
+	profile, _, _, err := service.Complete(t.Context(), CompleteOnboardingInput{
+		UserID:        "user-1",
+		LeagueID:      memory.LeagueIDLiga1Indonesia,
+		SquadName:     "Garuda XI",
+		PlayerIDs:     validOnboardingPlayerIDs(),
+		GoalkeeperID:  "idn-gk-01",
+		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-03", "idn-mid-04", "idn-mid-06"},
+		ForwardIDs:    []string{"idn-fwd-03", "idn-fwd-04"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-gk-03", "idn-def-06", "idn-mid-05"},
+		CaptainID:     "idn-mid-01",
+		ViceCaptainID: "idn-def-01",
+		CountryCode:   "ZZ",
+		IPAddress:     "2.2.2.2",
+	})
+	if err != nil {
+		t.Fatalf("complete onboarding failed: %v", err)
+	}
+
+	if profile.CountryCode != "ID" {
+		t.Fatalf("expected existing country code ID to be preserved, got %s", profile.CountryCode)
+	}
+	if !joiner.called {
+		t.Fatalf("expected default custom league joiner to be called")
+	}
+	if joiner.countryCode != "ID" {
+		t.Fatalf("expected joiner country code ID, got %s", joiner.countryCode)
+	}
+}
+
 func validOnboardingPlayerIDs() []string {
 	return []string{
 		"idn-gk-01",

@@ -184,6 +184,28 @@ func (r *FixtureRepository) ListByLeague(ctx context.Context, leagueID string) (
 	return append([]fixture.Fixture(nil), items...), nil
 }
 
+func (r *FixtureRepository) GetByID(ctx context.Context, leagueID, fixtureID string) (fixture.Fixture, bool, error) {
+	key := "fixture:id:" + leagueID + ":" + fixtureID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		item, exists, err := r.next.GetByID(ctx, leagueID, fixtureID)
+		if err != nil {
+			return nil, err
+		}
+		return cachedFixtureByID{value: item, exists: exists}, nil
+	})
+	if err != nil {
+		return fixture.Fixture{}, false, err
+	}
+
+	cached, _ := v.(cachedFixtureByID)
+	return cached.value, cached.exists, nil
+}
+
+type cachedFixtureByID struct {
+	value  fixture.Fixture
+	exists bool
+}
+
 type LineupRepository struct {
 	next  lineup.Repository
 	cache *basecache.Store
@@ -386,6 +408,23 @@ func (r *PlayerStatsRepository) ListMatchHistoryByLeagueAndPlayer(ctx context.Co
 	return append([]playerstats.MatchHistory(nil), items...), nil
 }
 
+func (r *PlayerStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]playerstats.FixtureStat, error) {
+	key := "player-stats:fixture-stats:" + leagueID + ":" + fixtureID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListFixtureStatsByLeagueAndFixture(ctx, leagueID, fixtureID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]playerstats.FixtureStat(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]playerstats.FixtureStat)
+	return append([]playerstats.FixtureStat(nil), items...), nil
+}
+
 func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]playerstats.FixtureEvent, error) {
 	key := "player-stats:events:" + leagueID + ":" + fixtureID
 	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
@@ -464,6 +503,23 @@ func (r *TeamStatsRepository) ListMatchHistoryByLeagueAndTeam(ctx context.Contex
 
 	items, _ := v.([]teamstats.MatchHistory)
 	return append([]teamstats.MatchHistory(nil), items...), nil
+}
+
+func (r *TeamStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]teamstats.FixtureStat, error) {
+	key := "team-stats:fixture-stats:" + leagueID + ":" + fixtureID
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListFixtureStatsByLeagueAndFixture(ctx, leagueID, fixtureID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]teamstats.FixtureStat(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]teamstats.FixtureStat)
+	return append([]teamstats.FixtureStat(nil), items...), nil
 }
 
 func (r *TeamStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []teamstats.FixtureStat) error {

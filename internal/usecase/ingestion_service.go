@@ -2,11 +2,14 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
+	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 )
 
@@ -14,6 +17,7 @@ type IngestionService struct {
 	fixtureWriter   fixtureIngestionWriter
 	playerStatsRepo playerstats.Repository
 	teamStatsRepo   teamstats.Repository
+	rawDataRepo     rawdata.Repository
 }
 
 type fixtureIngestionWriter interface {
@@ -24,11 +28,13 @@ func NewIngestionService(
 	fixtureWriter fixtureIngestionWriter,
 	playerStatsRepo playerstats.Repository,
 	teamStatsRepo teamstats.Repository,
+	rawDataRepo rawdata.Repository,
 ) *IngestionService {
 	return &IngestionService{
 		fixtureWriter:   fixtureWriter,
 		playerStatsRepo: playerStatsRepo,
 		teamStatsRepo:   teamStatsRepo,
+		rawDataRepo:     rawDataRepo,
 	}
 }
 
@@ -128,5 +134,41 @@ func (s *IngestionService) ReplaceFixtureEvents(ctx context.Context, fixtureID s
 	if err := s.playerStatsRepo.ReplaceFixtureEvents(ctx, fixtureID, cleaned); err != nil {
 		return fmt.Errorf("replace fixture events: %w", err)
 	}
+	return nil
+}
+
+func (s *IngestionService) UpsertRawPayloads(ctx context.Context, source string, items []rawdata.Payload) error {
+	if s.rawDataRepo == nil {
+		return nil
+	}
+
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "" {
+		source = "sportmonks"
+	}
+
+	cleaned := make([]rawdata.Payload, 0, len(items))
+	for _, item := range items {
+		item.Source = source
+		item.EntityType = strings.ToLower(strings.TrimSpace(item.EntityType))
+		item.EntityKey = strings.TrimSpace(item.EntityKey)
+		item.LeaguePublicID = strings.TrimSpace(item.LeaguePublicID)
+		item.FixturePublicID = strings.TrimSpace(item.FixturePublicID)
+		item.TeamPublicID = strings.TrimSpace(item.TeamPublicID)
+		item.PlayerPublicID = strings.TrimSpace(item.PlayerPublicID)
+		item.PayloadJSON = strings.TrimSpace(item.PayloadJSON)
+		if item.EntityType == "" || item.EntityKey == "" || item.PayloadJSON == "" {
+			return fmt.Errorf("%w: entity_type, entity_key and payload are required", ErrInvalidInput)
+		}
+
+		hash := sha256.Sum256([]byte(item.PayloadJSON))
+		item.PayloadHash = hex.EncodeToString(hash[:])
+		cleaned = append(cleaned, item)
+	}
+
+	if err := s.rawDataRepo.UpsertMany(ctx, cleaned); err != nil {
+		return fmt.Errorf("upsert raw payloads: %w", err)
+	}
+
 	return nil
 }

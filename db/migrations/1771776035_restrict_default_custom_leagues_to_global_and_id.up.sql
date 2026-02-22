@@ -1,5 +1,11 @@
 BEGIN;
 
+DELETE FROM custom_leagues
+WHERE is_default = TRUE
+  AND country_code IS NOT NULL
+  AND country_code <> 'ID'
+  AND deleted_at IS NULL;
+
 WITH league_defaults AS (
     SELECT
         l.public_id AS league_public_id,
@@ -64,20 +70,14 @@ SET league_public_id = EXCLUDED.league_public_id,
     is_default = EXCLUDED.is_default,
     deleted_at = NULL;
 
-WITH target_countries(country_code, country_name) AS (
-    VALUES
-        ('ID', 'Indonesia')
-),
-league_country_defaults AS (
+WITH league_country_defaults AS (
     SELECT
         l.public_id AS league_public_id,
-        tc.country_code,
-        tc.country_name,
-        'default-country-' || l.public_id || '-' || LOWER(tc.country_code) AS public_id,
-        tc.country_name || ' Fans - ' || l.name AS group_name,
-        'DC' || UPPER(SUBSTRING(md5('default-country:' || l.public_id || ':' || tc.country_code) FROM 1 FOR 10)) AS invite_code
+        'ID'::TEXT AS country_code,
+        'Indonesia Fans - ' || l.name AS group_name,
+        'default-country-' || l.public_id || '-id' AS public_id,
+        'DC' || UPPER(SUBSTRING(md5('default-country:' || l.public_id || ':ID') FROM 1 FOR 10)) AS invite_code
     FROM leagues l
-    CROSS JOIN target_countries tc
     WHERE l.deleted_at IS NULL
 )
 UPDATE custom_leagues cl
@@ -93,20 +93,14 @@ WHERE cl.league_public_id = lcd.league_public_id
   AND cl.is_default = TRUE
   AND cl.deleted_at IS NULL;
 
-WITH target_countries(country_code, country_name) AS (
-    VALUES
-        ('ID', 'Indonesia')
-),
-league_country_defaults AS (
+WITH league_country_defaults AS (
     SELECT
         l.public_id AS league_public_id,
-        tc.country_code,
-        tc.country_name,
-        'default-country-' || l.public_id || '-' || LOWER(tc.country_code) AS public_id,
-        tc.country_name || ' Fans - ' || l.name AS group_name,
-        'DC' || UPPER(SUBSTRING(md5('default-country:' || l.public_id || ':' || tc.country_code) FROM 1 FOR 10)) AS invite_code
+        'ID'::TEXT AS country_code,
+        'Indonesia Fans - ' || l.name AS group_name,
+        'default-country-' || l.public_id || '-id' AS public_id,
+        'DC' || UPPER(SUBSTRING(md5('default-country:' || l.public_id || ':ID') FROM 1 FOR 10)) AS invite_code
     FROM leagues l
-    CROSS JOIN target_countries tc
     WHERE l.deleted_at IS NULL
 )
 INSERT INTO custom_leagues (

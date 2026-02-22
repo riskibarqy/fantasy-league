@@ -69,3 +69,21 @@ func (s *PlayerStatsService) ListFixtureEvents(ctx context.Context, leagueID, fi
 
 	return items, nil
 }
+
+func (s *PlayerStatsService) ListFixtureStats(ctx context.Context, leagueID, fixtureID string) ([]playerstats.FixtureStat, error) {
+	leagueID = strings.TrimSpace(leagueID)
+	fixtureID = strings.TrimSpace(fixtureID)
+	if leagueID == "" {
+		return nil, fmt.Errorf("%w: league id is required", ErrInvalidInput)
+	}
+	if fixtureID == "" {
+		return nil, fmt.Errorf("%w: fixture id is required", ErrInvalidInput)
+	}
+
+	items, err := s.statsRepo.ListFixtureStatsByLeagueAndFixture(ctx, leagueID, fixtureID)
+	if err != nil {
+		return nil, fmt.Errorf("list fixture player stats: %w", err)
+	}
+
+	return items, nil
+}

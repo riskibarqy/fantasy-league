@@ -124,6 +124,51 @@ func (r *TeamStatsRepository) ListMatchHistoryByLeagueAndTeam(ctx context.Contex
 	return out, nil
 }
 
+func (r *TeamStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.Context, leagueID, fixtureID string) ([]teamstats.FixtureStat, error) {
+	query, args, err := qb.Select(
+		"tfs.fixture_public_id",
+		"tfs.team_public_id",
+		"COALESCE(tfs.possession_pct::float8, 0) AS possession_pct",
+		"tfs.shots",
+		"tfs.shots_on_target",
+		"tfs.corners",
+		"tfs.fouls",
+		"tfs.offsides",
+	).From("team_fixture_stats tfs JOIN fixtures f ON f.public_id = tfs.fixture_public_id").
+		Where(
+			qb.Eq("f.league_public_id", leagueID),
+			qb.Eq("tfs.fixture_public_id", fixtureID),
+			qb.IsNull("tfs.deleted_at"),
+			qb.IsNull("f.deleted_at"),
+		).
+		OrderBy("tfs.id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list fixture team stats query: %w", err)
+	}
+
+	var rows []teamFixtureStatsRow
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list fixture team stats: %w", err)
+	}
+
+	out := make([]teamstats.FixtureStat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, teamstats.FixtureStat{
+			FixtureID:     row.FixtureID,
+			TeamID:        row.TeamID,
+			PossessionPct: row.PossessionPct,
+			Shots:         row.Shots,
+			ShotsOnTarget: row.ShotsOnTarget,
+			Corners:       row.Corners,
+			Fouls:         row.Fouls,
+			Offsides:      row.Offsides,
+		})
+	}
+
+	return out, nil
+}
+
 func (r *TeamStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID string, stats []teamstats.FixtureStat) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -208,6 +253,17 @@ type teamMatchHistoryRow struct {
 }
 
 type teamFixtureStatInsertModel struct {
+	FixtureID     string  `db:"fixture_public_id"`
+	TeamID        string  `db:"team_public_id"`
+	PossessionPct float64 `db:"possession_pct"`
+	Shots         int     `db:"shots"`
+	ShotsOnTarget int     `db:"shots_on_target"`
+	Corners       int     `db:"corners"`
+	Fouls         int     `db:"fouls"`
+	Offsides      int     `db:"offsides"`
+}
+
+type teamFixtureStatsRow struct {
 	FixtureID     string  `db:"fixture_public_id"`
 	TeamID        string  `db:"team_public_id"`
 	PossessionPct float64 `db:"possession_pct"`

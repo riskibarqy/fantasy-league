@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -40,26 +41,35 @@ func (r *FixtureRepository) ListByLeague(ctx context.Context, leagueID string) (
 
 	out := make([]fixture.Fixture, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, fixture.Fixture{
-			ID:           row.PublicID,
-			LeagueID:     row.LeagueID,
-			Gameweek:     row.Gameweek,
-			HomeTeam:     row.HomeTeam,
-			AwayTeam:     row.AwayTeam,
-			HomeTeamID:   row.HomeTeamID.String,
-			AwayTeamID:   row.AwayTeamID.String,
-			FixtureRefID: nullInt64ToInt64(row.FixtureRefID),
-			KickoffAt:    row.KickoffAt,
-			Venue:        row.Venue,
-			HomeScore:    nullInt64ToIntPtr(row.HomeScore),
-			AwayScore:    nullInt64ToIntPtr(row.AwayScore),
-			Status:       fixture.NormalizeStatus(row.Status),
-			WinnerTeamID: row.WinnerTeamID.String,
-			FinishedAt:   nullTimeToTimePtr(row.FinishedAt),
-		})
+		out = append(out, fixtureFromTableRow(row))
 	}
 
 	return out, nil
+}
+
+func (r *FixtureRepository) GetByID(ctx context.Context, leagueID, fixtureID string) (fixture.Fixture, bool, error) {
+	query, args, err := qb.Select(
+		"*",
+	).From("fixtures").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("public_id", fixtureID),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return fixture.Fixture{}, false, fmt.Errorf("build select fixture by id query: %w", err)
+	}
+
+	var row fixtureTableModel
+	if err := r.db.GetContext(ctx, &row, query, args...); err != nil {
+		if err == sql.ErrNoRows {
+			return fixture.Fixture{}, false, nil
+		}
+		return fixture.Fixture{}, false, fmt.Errorf("select fixture by id: %w", err)
+	}
+
+	return fixtureFromTableRow(row), true, nil
 }
 
 func (r *FixtureRepository) listByLeagueFallback(ctx context.Context, leagueID string) ([]fixture.Fixture, error) {
@@ -96,23 +106,7 @@ func (r *FixtureRepository) listByLeagueFallback(ctx context.Context, leagueID s
 
 	out := make([]fixture.Fixture, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, fixture.Fixture{
-			ID:           row.PublicID,
-			LeagueID:     row.LeagueID,
-			Gameweek:     row.Gameweek,
-			HomeTeam:     row.HomeTeam,
-			AwayTeam:     row.AwayTeam,
-			HomeTeamID:   row.HomeTeamID.String,
-			AwayTeamID:   row.AwayTeamID.String,
-			FixtureRefID: nullInt64ToInt64(row.FixtureRefID),
-			KickoffAt:    row.KickoffAt,
-			Venue:        row.Venue,
-			HomeScore:    nullInt64ToIntPtr(row.HomeScore),
-			AwayScore:    nullInt64ToIntPtr(row.AwayScore),
-			Status:       fixture.NormalizeStatus(row.Status),
-			WinnerTeamID: row.WinnerTeamID.String,
-			FinishedAt:   nullTimeToTimePtr(row.FinishedAt),
-		})
+		out = append(out, fixtureFromTableRow(row))
 	}
 
 	return out, nil
@@ -184,4 +178,24 @@ func isFixtureResultFormatMismatch(err error) bool {
 	return strings.Contains(text, "bind message has") &&
 		strings.Contains(text, "result formats") &&
 		strings.Contains(text, "query has")
+}
+
+func fixtureFromTableRow(row fixtureTableModel) fixture.Fixture {
+	return fixture.Fixture{
+		ID:           row.PublicID,
+		LeagueID:     row.LeagueID,
+		Gameweek:     row.Gameweek,
+		HomeTeam:     row.HomeTeam,
+		AwayTeam:     row.AwayTeam,
+		HomeTeamID:   row.HomeTeamID.String,
+		AwayTeamID:   row.AwayTeamID.String,
+		FixtureRefID: nullInt64ToInt64(row.FixtureRefID),
+		KickoffAt:    row.KickoffAt,
+		Venue:        row.Venue,
+		HomeScore:    nullInt64ToIntPtr(row.HomeScore),
+		AwayScore:    nullInt64ToIntPtr(row.AwayScore),
+		Status:       fixture.NormalizeStatus(row.Status),
+		WinnerTeamID: row.WinnerTeamID.String,
+		FinishedAt:   nullTimeToTimePtr(row.FinishedAt),
+	}
 }

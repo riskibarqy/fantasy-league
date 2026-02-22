@@ -91,6 +91,17 @@ paths:
           $ref: '#/components/responses/GoogleSuccess'
         default:
           $ref: '#/components/responses/GoogleError'
+  /v1/leagues/{leagueID}/fixtures/{fixtureID}:
+    get:
+      summary: Get fixture details by league and fixture
+      parameters:
+        - $ref: '#/components/parameters/LeagueID'
+        - $ref: '#/components/parameters/FixtureIDPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
   /v1/leagues/{leagueID}/fixtures/{fixtureID}/events:
     get:
       summary: List fixture events by league and fixture
@@ -254,6 +265,22 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/IngestFixtureEventsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/internal/ingestion/raw-payloads:
+    post:
+      summary: Ingest raw source payloads as JSONB
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestRawPayloadsRequest'
       responses:
         '200':
           $ref: '#/components/responses/GoogleSuccess'
@@ -769,6 +796,9 @@ components:
         finished_at:
           type: string
           format: date-time
+        payload:
+          type: object
+          additionalProperties: true
       required:
         - id
         - league_id
@@ -799,6 +829,9 @@ components:
           type: integer
         fantasy_points:
           type: integer
+        payload:
+          type: object
+          additionalProperties: true
       required:
         - player_id
         - team_id
@@ -831,6 +864,9 @@ components:
           type: integer
         offsides:
           type: integer
+        payload:
+          type: object
+          additionalProperties: true
       required:
         - team_id
     IngestFixtureEventsRequest:
@@ -865,5 +901,44 @@ components:
           type: integer
         extra_minute:
           type: integer
+        payload:
+          type: object
+          additionalProperties: true
       required:
         - event_type
+    IngestRawPayloadsRequest:
+      type: object
+      properties:
+        source:
+          type: string
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/IngestRawPayloadRecord'
+      required:
+        - records
+    IngestRawPayloadRecord:
+      type: object
+      properties:
+        entity_type:
+          type: string
+        entity_key:
+          type: string
+        league_id:
+          type: string
+        fixture_id:
+          type: string
+        team_id:
+          type: string
+        player_id:
+          type: string
+        source_updated_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          additionalProperties: true
+      required:
+        - entity_type
+        - entity_key
+        - payload

@@ -76,6 +76,32 @@ func (s *TeamService) GetTeamHistoryByLeague(ctx context.Context, leagueID, team
 	return items, nil
 }
 
+func (s *TeamService) ListFixtureStatsByLeague(ctx context.Context, leagueID, fixtureID string) ([]teamstats.FixtureStat, error) {
+	leagueID = strings.TrimSpace(leagueID)
+	fixtureID = strings.TrimSpace(fixtureID)
+	if leagueID == "" {
+		return nil, fmt.Errorf("%w: league id is required", ErrInvalidInput)
+	}
+	if fixtureID == "" {
+		return nil, fmt.Errorf("%w: fixture id is required", ErrInvalidInput)
+	}
+
+	_, exists, err := s.leagueRepo.GetByID(ctx, leagueID)
+	if err != nil {
+		return nil, fmt.Errorf("get league: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%w: league=%s", ErrNotFound, leagueID)
+	}
+
+	items, err := s.teamStatsRepo.ListFixtureStatsByLeagueAndFixture(ctx, leagueID, fixtureID)
+	if err != nil {
+		return nil, fmt.Errorf("list team fixture stats: %w", err)
+	}
+
+	return items, nil
+}
+
 func (s *TeamService) getTeam(ctx context.Context, leagueID, teamID string) (team.Team, error) {
 	leagueID = strings.TrimSpace(leagueID)
 	teamID = strings.TrimSpace(teamID)

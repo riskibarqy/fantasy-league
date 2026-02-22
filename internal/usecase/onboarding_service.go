@@ -231,6 +231,10 @@ func normalizeCountryCodeForOnboarding(ctx context.Context, value string) string
 	if len(code) != 2 {
 		return ""
 	}
+	if code == "ZZ" {
+		// ZZ is used by transport as "unknown country". Do not persist it.
+		return ""
+	}
 	for _, r := range code {
 		if r < 'A' || r > 'Z' {
 			return ""

@@ -30,3 +30,16 @@ func (r *FixtureRepository) ListByLeague(_ context.Context, leagueID string) ([]
 	out = append(out, items...)
 	return out, nil
 }
+
+func (r *FixtureRepository) GetByID(_ context.Context, leagueID, fixtureID string) (fixture.Fixture, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, item := range r.fixturesByLeague[leagueID] {
+		if item.ID == fixtureID {
+			return item, true, nil
+		}
+	}
+
+	return fixture.Fixture{}, false, nil
+}
