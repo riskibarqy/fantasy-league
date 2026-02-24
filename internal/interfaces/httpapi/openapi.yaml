@@ -610,17 +610,19 @@ components:
           type: string
         defenderIds:
           type: array
-          minItems: 2
+          minItems: 3
           maxItems: 5
           items:
             type: string
         midfielderIds:
           type: array
+          minItems: 3
           maxItems: 5
           items:
             type: string
         forwardIds:
           type: array
+          minItems: 1
           maxItems: 3
           items:
             type: string
@@ -669,17 +671,19 @@ components:
           type: string
         defender_ids:
           type: array
-          minItems: 2
+          minItems: 3
           maxItems: 5
           items:
             type: string
         midfielder_ids:
           type: array
+          minItems: 3
           maxItems: 5
           items:
             type: string
         forward_ids:
           type: array
+          minItems: 1
           maxItems: 3
           items:
             type: string

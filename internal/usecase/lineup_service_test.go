@@ -23,9 +23,9 @@ func TestLineupService_Save_ValidLineup(t *testing.T) {
 		LeagueID:      memory.LeagueIDLiga1Indonesia,
 		GoalkeeperID:  "idn-gk-01",
 		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04"},
-		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03"},
-		ForwardIDs:    []string{"idn-fwd-01", "idn-fwd-02", "idn-fwd-03"},
-		SubstituteIDs: []string{"idn-gk-02", "idn-def-05", "idn-mid-04", "idn-mid-05"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03", "idn-mid-04"},
+		ForwardIDs:    []string{"idn-fwd-01", "idn-fwd-02"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-def-05", "idn-mid-05", "idn-fwd-03"},
 		CaptainID:     "idn-mid-01",
 		ViceCaptainID: "idn-fwd-01",
 	})
@@ -105,9 +105,109 @@ func TestLineupService_Save_RejectPlayerOutsideSquad(t *testing.T) {
 		LeagueID:      memory.LeagueIDLiga1Indonesia,
 		GoalkeeperID:  "idn-gk-03",
 		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04"},
-		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03", "idn-mid-04"},
+		ForwardIDs:    []string{"idn-fwd-01", "idn-fwd-02"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-def-05", "idn-mid-05", "idn-fwd-03"},
+		CaptainID:     "idn-mid-01",
+		ViceCaptainID: "idn-fwd-01",
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestLineupService_Save_RejectMidfielderBelowMinimum(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	lineupRepo := memory.NewLineupRepository()
+	squadRepo := memory.NewSquadRepository()
+
+	svc := NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
+	seedValidSquad(t, squadRepo, "user-1")
+
+	_, err := svc.Save(t.Context(), SaveLineupInput{
+		UserID:        "user-1",
+		LeagueID:      memory.LeagueIDLiga1Indonesia,
+		GoalkeeperID:  "idn-gk-01",
+		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04", "idn-def-05"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02"},
 		ForwardIDs:    []string{"idn-fwd-01", "idn-fwd-02", "idn-fwd-03"},
-		SubstituteIDs: []string{"idn-gk-02", "idn-def-05", "idn-mid-04", "idn-mid-05"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-mid-03", "idn-mid-04", "idn-mid-05"},
+		CaptainID:     "idn-def-01",
+		ViceCaptainID: "idn-fwd-01",
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestLineupService_Save_RejectForwardBelowMinimum(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	lineupRepo := memory.NewLineupRepository()
+	squadRepo := memory.NewSquadRepository()
+
+	svc := NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
+	seedValidSquad(t, squadRepo, "user-1")
+
+	_, err := svc.Save(t.Context(), SaveLineupInput{
+		UserID:        "user-1",
+		LeagueID:      memory.LeagueIDLiga1Indonesia,
+		GoalkeeperID:  "idn-gk-01",
+		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04", "idn-def-05"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03", "idn-mid-04", "idn-mid-05"},
+		ForwardIDs:    []string{},
+		SubstituteIDs: []string{"idn-gk-02", "idn-fwd-01", "idn-fwd-02", "idn-fwd-03"},
+		CaptainID:     "idn-mid-01",
+		ViceCaptainID: "idn-mid-02",
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestLineupService_Save_AllowDynamicBenchComposition(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	lineupRepo := memory.NewLineupRepository()
+	squadRepo := memory.NewSquadRepository()
+
+	svc := NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
+	seedValidSquad(t, squadRepo, "user-1")
+
+	_, err := svc.Save(t.Context(), SaveLineupInput{
+		UserID:        "user-1",
+		LeagueID:      memory.LeagueIDLiga1Indonesia,
+		GoalkeeperID:  "idn-gk-01",
+		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04", "idn-def-05"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03", "idn-mid-04"},
+		ForwardIDs:    []string{"idn-fwd-01"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-mid-05", "idn-fwd-02", "idn-fwd-03"},
+		CaptainID:     "idn-mid-01",
+		ViceCaptainID: "idn-fwd-01",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for valid dynamic bench: %v", err)
+	}
+}
+
+func TestLineupService_Save_RejectInvalidDynamicBenchComposition(t *testing.T) {
+	leagueRepo := memory.NewLeagueRepository(memory.SeedLeagues())
+	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
+	lineupRepo := memory.NewLineupRepository()
+	squadRepo := memory.NewSquadRepository()
+
+	svc := NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
+	seedValidSquad(t, squadRepo, "user-1")
+
+	_, err := svc.Save(t.Context(), SaveLineupInput{
+		UserID:        "user-1",
+		LeagueID:      memory.LeagueIDLiga1Indonesia,
+		GoalkeeperID:  "idn-gk-01",
+		DefenderIDs:   []string{"idn-def-01", "idn-def-02", "idn-def-03", "idn-def-04", "idn-def-05"},
+		MidfielderIDs: []string{"idn-mid-01", "idn-mid-02", "idn-mid-03", "idn-mid-04"},
+		ForwardIDs:    []string{"idn-fwd-01"},
+		SubstituteIDs: []string{"idn-gk-02", "idn-gk-03", "idn-mid-05", "idn-fwd-02"},
 		CaptainID:     "idn-mid-01",
 		ViceCaptainID: "idn-fwd-01",
 	})

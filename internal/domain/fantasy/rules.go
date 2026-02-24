@@ -22,6 +22,7 @@ type Rules struct {
 	BudgetCap         int64
 	MaxPlayersPerTeam int
 	MinByPosition     map[player.Position]int
+	MaxByPosition     map[player.Position]int
 }
 
 func DefaultRules() Rules {
@@ -30,10 +31,16 @@ func DefaultRules() Rules {
 		BudgetCap:         1500,
 		MaxPlayersPerTeam: 3,
 		MinByPosition: map[player.Position]int{
-			player.PositionGoalkeeper: 1,
-			player.PositionDefender:   3,
-			player.PositionMidfielder: 3,
-			player.PositionForward:    1,
+			player.PositionGoalkeeper: 2,
+			player.PositionDefender:   5,
+			player.PositionMidfielder: 5,
+			player.PositionForward:    3,
+		},
+		MaxByPosition: map[player.Position]int{
+			player.PositionGoalkeeper: 2,
+			player.PositionDefender:   5,
+			player.PositionMidfielder: 5,
+			player.PositionForward:    3,
 		},
 	}
 }
@@ -85,6 +92,14 @@ func ValidatePicks(picks []SquadPick, rules Rules) error {
 			return fmt.Errorf("%w: pos=%s min=%d current=%d", ErrInsufficientFormation, pos, minRequired, positionCounter[pos])
 		}
 	}
+	for pos, maxAllowed := range rules.MaxByPosition {
+		if maxAllowed <= 0 {
+			continue
+		}
+		if positionCounter[pos] > maxAllowed {
+			return fmt.Errorf("%w: pos=%s max=%d current=%d", ErrInsufficientFormation, pos, maxAllowed, positionCounter[pos])
+		}
+	}
 
 	return nil
 }
@@ -100,6 +115,7 @@ func ValidatePicksPartial(picks []SquadPick, rules Rules) error {
 	}
 
 	teamCounter := make(map[string]int)
+	positionCounter := make(map[player.Position]int)
 	playerSet := make(map[string]struct{})
 	var totalCost int64
 
@@ -125,6 +141,16 @@ func ValidatePicksPartial(picks []SquadPick, rules Rules) error {
 		teamCounter[pick.TeamID]++
 		if teamCounter[pick.TeamID] > rules.MaxPlayersPerTeam {
 			return fmt.Errorf("%w: team=%s max=%d", ErrExceededTeamLimit, pick.TeamID, rules.MaxPlayersPerTeam)
+		}
+
+		positionCounter[pick.Position]++
+		for pos, maxAllowed := range rules.MaxByPosition {
+			if maxAllowed <= 0 {
+				continue
+			}
+			if positionCounter[pos] > maxAllowed {
+				return fmt.Errorf("%w: pos=%s max=%d current=%d", ErrInsufficientFormation, pos, maxAllowed, positionCounter[pos])
+			}
 		}
 
 		totalCost += pick.Price

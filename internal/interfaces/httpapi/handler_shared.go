@@ -106,9 +106,9 @@ type onboardingPickSquadRequest struct {
 	SquadName     string   `json:"squad_name" validate:"omitempty,max=100"`
 	PlayerIDs     []string `json:"player_ids" validate:"required,len=15,dive,required"`
 	GoalkeeperID  string   `json:"goalkeeper_id" validate:"required"`
-	DefenderIDs   []string `json:"defender_ids" validate:"required,min=2,max=5,dive,required"`
-	MidfielderIDs []string `json:"midfielder_ids" validate:"max=5,dive,required"`
-	ForwardIDs    []string `json:"forward_ids" validate:"max=3,dive,required"`
+	DefenderIDs   []string `json:"defender_ids" validate:"required,min=3,max=5,dive,required"`
+	MidfielderIDs []string `json:"midfielder_ids" validate:"required,min=3,max=5,dive,required"`
+	ForwardIDs    []string `json:"forward_ids" validate:"required,min=1,max=3,dive,required"`
 	SubstituteIDs []string `json:"substitute_ids" validate:"required,len=4,dive,required"`
 	CaptainID     string   `json:"captain_id" validate:"required"`
 	ViceCaptainID string   `json:"vice_captain_id" validate:"required"`
@@ -227,9 +227,9 @@ type joinCustomLeagueByInviteRequest struct {
 type lineupUpsertRequest struct {
 	LeagueID      string   `json:"leagueId" validate:"required"`
 	GoalkeeperID  string   `json:"goalkeeperId" validate:"required"`
-	DefenderIDs   []string `json:"defenderIds" validate:"required,min=2,max=5,dive,required"`
-	MidfielderIDs []string `json:"midfielderIds" validate:"max=5,dive,required"`
-	ForwardIDs    []string `json:"forwardIds" validate:"max=3,dive,required"`
+	DefenderIDs   []string `json:"defenderIds" validate:"required,min=3,max=5,dive,required"`
+	MidfielderIDs []string `json:"midfielderIds" validate:"required,min=3,max=5,dive,required"`
+	ForwardIDs    []string `json:"forwardIds" validate:"required,min=1,max=3,dive,required"`
 	SubstituteIDs []string `json:"substituteIds" validate:"required,len=4,dive,required"`
 	CaptainID     string   `json:"captainId" validate:"required"`
 	ViceCaptainID string   `json:"viceCaptainId" validate:"required"`

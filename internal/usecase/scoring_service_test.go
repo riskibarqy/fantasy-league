@@ -72,6 +72,9 @@ func TestDeriveLineupFromSquad(t *testing.T) {
 	if len(got.SubstituteIDs) != 4 {
 		t.Fatalf("unexpected substitute count: got=%d want=4", len(got.SubstituteIDs))
 	}
+	if got.SubstituteIDs[0] != "gk2" {
+		t.Fatalf("expected first substitute to be bench GK, got=%s", got.SubstituteIDs[0])
+	}
 	if got.CaptainID == "" || got.ViceCaptainID == "" {
 		t.Fatalf("captain and vice-captain must be set")
 	}

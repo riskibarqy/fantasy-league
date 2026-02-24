@@ -59,7 +59,6 @@ func TestSquadService_UpsertSquad_CreateThenUpdate(t *testing.T) {
 	playerIDs := []string{
 		"idn-gk-01",
 		"idn-gk-02",
-		"idn-gk-03",
 		"idn-def-01",
 		"idn-def-02",
 		"idn-def-03",
@@ -69,7 +68,8 @@ func TestSquadService_UpsertSquad_CreateThenUpdate(t *testing.T) {
 		"idn-mid-03",
 		"idn-mid-04",
 		"idn-mid-05",
-		"idn-mid-06",
+		"idn-mid-07",
+		"idn-fwd-02",
 		"idn-fwd-03",
 		"idn-fwd-04",
 	}
@@ -167,7 +167,6 @@ func TestSquadService_PickSquad_DefaultAndReuseName(t *testing.T) {
 	playerIDs := []string{
 		"idn-gk-01",
 		"idn-gk-02",
-		"idn-gk-03",
 		"idn-def-01",
 		"idn-def-02",
 		"idn-def-03",
@@ -177,7 +176,8 @@ func TestSquadService_PickSquad_DefaultAndReuseName(t *testing.T) {
 		"idn-mid-03",
 		"idn-mid-04",
 		"idn-mid-05",
-		"idn-mid-06",
+		"idn-mid-07",
+		"idn-fwd-02",
 		"idn-fwd-03",
 		"idn-fwd-04",
 	}
@@ -286,7 +286,6 @@ func TestSquadService_UpsertSquad_AutoJoinDefaultLeagues(t *testing.T) {
 	playerIDs := []string{
 		"idn-gk-01",
 		"idn-gk-02",
-		"idn-gk-03",
 		"idn-def-01",
 		"idn-def-02",
 		"idn-def-03",
@@ -296,7 +295,8 @@ func TestSquadService_UpsertSquad_AutoJoinDefaultLeagues(t *testing.T) {
 		"idn-mid-03",
 		"idn-mid-04",
 		"idn-mid-05",
-		"idn-mid-06",
+		"idn-mid-07",
+		"idn-fwd-02",
 		"idn-fwd-03",
 		"idn-fwd-04",
 	}

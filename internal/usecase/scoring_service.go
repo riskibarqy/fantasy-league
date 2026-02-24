@@ -348,35 +348,22 @@ func deriveLineupFromSquad(squad fantasy.Squad) (lineup.Lineup, error) {
 	mids := positionBuckets["MID"]
 	fwds := positionBuckets["FWD"]
 
-	if len(gks) < 1 || len(defs) < 2 || len(mids) < 2 || len(fwds) < 1 {
+	if len(gks) < 2 || len(defs) < 4 || len(mids) < 4 || len(fwds) < 2 {
 		return lineup.Lineup{}, fmt.Errorf("cannot derive lineup from incomplete squad")
 	}
 
-	formations := [][3]int{
-		{3, 4, 3},
-		{3, 5, 2},
-		{4, 4, 2},
-		{4, 3, 3},
-		{4, 5, 1},
-		{5, 3, 2},
-		{5, 4, 1},
-		{5, 2, 3},
-		{2, 5, 3},
-	}
+	defCount := len(defs) - 1
+	midCount := len(mids) - 1
+	fwdCount := len(fwds) - 1
 
-	defCount := 0
-	midCount := 0
-	fwdCount := 0
-	for _, f := range formations {
-		if len(defs) >= f[0] && len(mids) >= f[1] && len(fwds) >= f[2] {
-			defCount = f[0]
-			midCount = f[1]
-			fwdCount = f[2]
-			break
-		}
+	if len(gks)-1 != 1 || len(defs)-defCount != 1 || len(mids)-midCount != 1 || len(fwds)-fwdCount != 1 {
+		return lineup.Lineup{}, fmt.Errorf("cannot derive bench composition from squad")
 	}
-	if defCount == 0 {
+	if defCount < 3 || defCount > 5 || midCount < 3 || midCount > 5 || fwdCount < 1 || fwdCount > 3 {
 		return lineup.Lineup{}, fmt.Errorf("cannot derive valid formation from squad")
+	}
+	if 1+defCount+midCount+fwdCount != 11 {
+		return lineup.Lineup{}, fmt.Errorf("cannot derive valid starter size from squad")
 	}
 
 	startersSet := make(map[string]struct{}, 11)
@@ -396,18 +383,11 @@ func deriveLineupFromSquad(squad fantasy.Squad) (lineup.Lineup, error) {
 		startersSet[id] = struct{}{}
 	}
 
-	substituteIDs := make([]string, 0, 4)
-	for _, pick := range squad.Picks {
-		if _, ok := startersSet[pick.PlayerID]; ok {
-			continue
-		}
-		substituteIDs = append(substituteIDs, pick.PlayerID)
-		if len(substituteIDs) == 4 {
-			break
-		}
-	}
-	if len(substituteIDs) != 4 {
-		return lineup.Lineup{}, fmt.Errorf("cannot derive substitutes from squad")
+	substituteIDs := []string{
+		gks[1],
+		defs[defCount],
+		mids[midCount],
+		fwds[fwdCount],
 	}
 
 	captain := goalkeeper

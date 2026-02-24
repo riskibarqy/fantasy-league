@@ -15,6 +15,16 @@ import (
 const (
 	lineupStarterSize    = 11
 	lineupSubstituteSize = 4
+	lineupDefenderMin    = 3
+	lineupDefenderMax    = 5
+	lineupMidfielderMin  = 3
+	lineupMidfielderMax  = 5
+	lineupForwardMin     = 1
+	lineupForwardMax     = 3
+	lineupSquadGKTotal   = 2
+	lineupSquadDEFSTotal = 5
+	lineupSquadMIDTotal  = 5
+	lineupSquadFWDTotal  = 3
 )
 
 type SaveLineupInput struct {
@@ -112,14 +122,14 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 		return lineup.Lineup{}, err
 	}
 
-	if len(defenderIDs) < 2 || len(defenderIDs) > 5 {
-		return lineup.Lineup{}, fmt.Errorf("%w: defender count must be between 2 and 5", ErrInvalidInput)
+	if len(defenderIDs) < lineupDefenderMin || len(defenderIDs) > lineupDefenderMax {
+		return lineup.Lineup{}, fmt.Errorf("%w: defender count must be between %d and %d", ErrInvalidInput, lineupDefenderMin, lineupDefenderMax)
 	}
-	if len(midfielderIDs) > 5 {
-		return lineup.Lineup{}, fmt.Errorf("%w: midfielder count must not exceed 5", ErrInvalidInput)
+	if len(midfielderIDs) < lineupMidfielderMin || len(midfielderIDs) > lineupMidfielderMax {
+		return lineup.Lineup{}, fmt.Errorf("%w: midfielder count must be between %d and %d", ErrInvalidInput, lineupMidfielderMin, lineupMidfielderMax)
 	}
-	if len(forwardIDs) > 3 {
-		return lineup.Lineup{}, fmt.Errorf("%w: forward count must not exceed 3", ErrInvalidInput)
+	if len(forwardIDs) < lineupForwardMin || len(forwardIDs) > lineupForwardMax {
+		return lineup.Lineup{}, fmt.Errorf("%w: forward count must be between %d and %d", ErrInvalidInput, lineupForwardMin, lineupForwardMax)
 	}
 	if len(substituteIDs) != lineupSubstituteSize {
 		return lineup.Lineup{}, fmt.Errorf("%w: substitute bench must contain exactly 4 players", ErrInvalidInput)
@@ -199,6 +209,50 @@ func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup
 	}
 	if err := validatePositionIDs(forwardIDs, player.PositionForward, playersByID); err != nil {
 		return lineup.Lineup{}, err
+	}
+	benchGoalkeeperCount := 0
+	benchDefenderCount := 0
+	benchMidfielderCount := 0
+	benchForwardCount := 0
+	for _, id := range substituteIDs {
+		p, ok := playersByID[id]
+		if !ok {
+			return lineup.Lineup{}, fmt.Errorf("%w: unknown player id %s", ErrInvalidInput, id)
+		}
+		switch p.Position {
+		case player.PositionGoalkeeper:
+			benchGoalkeeperCount++
+		case player.PositionDefender:
+			benchDefenderCount++
+		case player.PositionMidfielder:
+			benchMidfielderCount++
+		case player.PositionForward:
+			benchForwardCount++
+		}
+	}
+
+	expectedBenchGoalkeeperCount := lineupSquadGKTotal - 1
+	expectedBenchDefenderCount := lineupSquadDEFSTotal - len(defenderIDs)
+	expectedBenchMidfielderCount := lineupSquadMIDTotal - len(midfielderIDs)
+	expectedBenchForwardCount := lineupSquadFWDTotal - len(forwardIDs)
+	if expectedBenchDefenderCount < 0 || expectedBenchMidfielderCount < 0 || expectedBenchForwardCount < 0 {
+		return lineup.Lineup{}, fmt.Errorf("%w: invalid formation for configured squad composition", ErrInvalidInput)
+	}
+	if expectedBenchGoalkeeperCount+expectedBenchDefenderCount+expectedBenchMidfielderCount+expectedBenchForwardCount != lineupSubstituteSize {
+		return lineup.Lineup{}, fmt.Errorf("%w: invalid bench size for selected formation", ErrInvalidInput)
+	}
+	if benchGoalkeeperCount != expectedBenchGoalkeeperCount ||
+		benchDefenderCount != expectedBenchDefenderCount ||
+		benchMidfielderCount != expectedBenchMidfielderCount ||
+		benchForwardCount != expectedBenchForwardCount {
+		return lineup.Lineup{}, fmt.Errorf(
+			"%w: bench composition must be GK=%d DEF=%d MID=%d FWD=%d for this formation",
+			ErrInvalidInput,
+			expectedBenchGoalkeeperCount,
+			expectedBenchDefenderCount,
+			expectedBenchMidfielderCount,
+			expectedBenchForwardCount,
+		)
 	}
 
 	existingSquad, exists, err := s.squadRepo.GetByUserAndLeague(ctx, input.UserID, input.LeagueID)
