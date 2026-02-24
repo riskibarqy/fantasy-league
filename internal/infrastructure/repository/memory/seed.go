@@ -35,14 +35,14 @@ func SeedLeagues() []league.League {
 
 func SeedTeams() []team.Team {
 	return []team.Team{
-		{ID: "idn-persija", LeagueID: LeagueIDLiga1Indonesia, Name: "Persija Jakarta", Short: "PSJ", ImageURL: "https://cdn.example.com/teams/idn-persija.png"},
-		{ID: "idn-persib", LeagueID: LeagueIDLiga1Indonesia, Name: "Persib Bandung", Short: "PSB", ImageURL: "https://cdn.example.com/teams/idn-persib.png"},
-		{ID: "idn-persebaya", LeagueID: LeagueIDLiga1Indonesia, Name: "Persebaya Surabaya", Short: "PRB", ImageURL: "https://cdn.example.com/teams/idn-persebaya.png"},
-		{ID: "idn-baliutd", LeagueID: LeagueIDLiga1Indonesia, Name: "Bali United", Short: "BU", ImageURL: "https://cdn.example.com/teams/idn-baliutd.png"},
-		{ID: "idn-psm", LeagueID: LeagueIDLiga1Indonesia, Name: "PSM Makassar", Short: "PSM", ImageURL: "https://cdn.example.com/teams/idn-psm.png"},
-		{ID: "idn-borneo", LeagueID: LeagueIDLiga1Indonesia, Name: "Borneo FC", Short: "BOR", ImageURL: "https://cdn.example.com/teams/idn-borneo.png"},
-		{ID: "eng-ars", LeagueID: LeagueIDPremierLeague, Name: "Arsenal", Short: "ARS", ImageURL: "https://cdn.example.com/teams/eng-ars.png"},
-		{ID: "eng-liv", LeagueID: LeagueIDPremierLeague, Name: "Liverpool", Short: "LIV", ImageURL: "https://cdn.example.com/teams/eng-liv.png"},
+		{ID: "idn-persija", LeagueID: LeagueIDLiga1Indonesia, Name: "Persija Jakarta", Short: "PSJ", ImageURL: "https://cdn.example.com/teams/idn-persija.png", PrimaryColor: "#B91C1C", SecondaryColor: "#F87171"},
+		{ID: "idn-persib", LeagueID: LeagueIDLiga1Indonesia, Name: "Persib Bandung", Short: "PSB", ImageURL: "https://cdn.example.com/teams/idn-persib.png", PrimaryColor: "#1D4ED8", SecondaryColor: "#60A5FA"},
+		{ID: "idn-persebaya", LeagueID: LeagueIDLiga1Indonesia, Name: "Persebaya Surabaya", Short: "PRB", ImageURL: "https://cdn.example.com/teams/idn-persebaya.png", PrimaryColor: "#047857", SecondaryColor: "#34D399"},
+		{ID: "idn-baliutd", LeagueID: LeagueIDLiga1Indonesia, Name: "Bali United", Short: "BU", ImageURL: "https://cdn.example.com/teams/idn-baliutd.png", PrimaryColor: "#991B1B", SecondaryColor: "#F59E0B"},
+		{ID: "idn-psm", LeagueID: LeagueIDLiga1Indonesia, Name: "PSM Makassar", Short: "PSM", ImageURL: "https://cdn.example.com/teams/idn-psm.png", PrimaryColor: "#7C2D12", SecondaryColor: "#FB923C"},
+		{ID: "idn-borneo", LeagueID: LeagueIDLiga1Indonesia, Name: "Borneo FC", Short: "BOR", ImageURL: "https://cdn.example.com/teams/idn-borneo.png", PrimaryColor: "#9A3412", SecondaryColor: "#FDBA74"},
+		{ID: "eng-ars", LeagueID: LeagueIDPremierLeague, Name: "Arsenal", Short: "ARS", ImageURL: "https://cdn.example.com/teams/eng-ars.png", PrimaryColor: "#B91C1C", SecondaryColor: "#FCD34D"},
+		{ID: "eng-liv", LeagueID: LeagueIDPremierLeague, Name: "Liverpool", Short: "LIV", ImageURL: "https://cdn.example.com/teams/eng-liv.png", PrimaryColor: "#B91C1C", SecondaryColor: "#E5E7EB"},
 	}
 }
 

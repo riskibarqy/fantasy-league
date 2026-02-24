@@ -257,11 +257,12 @@ type leaguePublicDTO struct {
 }
 
 type teamDTO struct {
-	ID       string `json:"id"`
-	LeagueID string `json:"leagueId"`
-	Name     string `json:"name"`
-	Short    string `json:"short"`
-	LogoURL  string `json:"logoUrl"`
+	ID        string   `json:"id"`
+	LeagueID  string   `json:"leagueId"`
+	Name      string   `json:"name"`
+	Short     string   `json:"short"`
+	LogoURL   string   `json:"logoUrl"`
+	TeamColor []string `json:"teamColor,omitempty"`
 }
 
 type teamDetailDTO struct {
@@ -297,32 +298,34 @@ type teamMatchHistoryDTO struct {
 }
 
 type playerPublicDTO struct {
-	ID              string  `json:"id"`
-	LeagueID        string  `json:"leagueId"`
-	Name            string  `json:"name"`
-	Club            string  `json:"club"`
-	Position        string  `json:"position"`
-	Price           float64 `json:"price"`
-	Form            float64 `json:"form"`
-	ProjectedPoints float64 `json:"projectedPoints"`
-	IsInjured       bool    `json:"isInjured"`
-	ImageURL        string  `json:"imageUrl"`
-	TeamLogoURL     string  `json:"teamLogoUrl"`
+	ID              string   `json:"id"`
+	LeagueID        string   `json:"leagueId"`
+	Name            string   `json:"name"`
+	Club            string   `json:"club"`
+	Position        string   `json:"position"`
+	Price           float64  `json:"price"`
+	Form            float64  `json:"form"`
+	ProjectedPoints float64  `json:"projectedPoints"`
+	IsInjured       bool     `json:"isInjured"`
+	ImageURL        string   `json:"imageUrl"`
+	TeamLogoURL     string   `json:"teamLogoUrl"`
+	TeamColor       []string `json:"teamColor,omitempty"`
 }
 
 type squadPlayerDTO struct {
-	ID              string  `json:"id"`
-	LeagueID        string  `json:"leagueId"`
-	Name            string  `json:"name"`
-	Club            string  `json:"club"`
-	Position        string  `json:"position"`
-	Price           float64 `json:"price"`
-	Form            float64 `json:"form"`
-	ProjectedPoints float64 `json:"projectedPoints"`
-	IsInjured       bool    `json:"isInjured"`
-	InSquad         bool    `json:"inSquad"`
-	ImageURL        string  `json:"imageUrl"`
-	TeamLogoURL     string  `json:"teamLogoUrl"`
+	ID              string   `json:"id"`
+	LeagueID        string   `json:"leagueId"`
+	Name            string   `json:"name"`
+	Club            string   `json:"club"`
+	Position        string   `json:"position"`
+	Price           float64  `json:"price"`
+	Form            float64  `json:"form"`
+	ProjectedPoints float64  `json:"projectedPoints"`
+	IsInjured       bool     `json:"isInjured"`
+	InSquad         bool     `json:"inSquad"`
+	ImageURL        string   `json:"imageUrl"`
+	TeamLogoURL     string   `json:"teamLogoUrl"`
+	TeamColor       []string `json:"teamColor,omitempty"`
 }
 
 type fixtureDTO struct {
@@ -518,11 +521,12 @@ func teamToDTO(ctx context.Context, v team.Team) teamDTO {
 	defer span.End()
 
 	return teamDTO{
-		ID:       v.ID,
-		LeagueID: v.LeagueID,
-		Name:     v.Name,
-		Short:    v.Short,
-		LogoURL:  teamLogoWithFallback(ctx, v.Name, v.ImageURL),
+		ID:        v.ID,
+		LeagueID:  v.LeagueID,
+		Name:      v.Name,
+		Short:     v.Short,
+		LogoURL:   teamLogoWithFallback(ctx, v.Name, v.ImageURL),
+		TeamColor: teamColorArray(v.PrimaryColor, v.SecondaryColor),
 	}
 }
 
@@ -551,7 +555,14 @@ func teamSeasonStatsToDTO(ctx context.Context, stats teamstats.SeasonStats) team
 	}
 }
 
-func playerToPublicDTO(ctx context.Context, v player.Player, teamName, playerImage, teamLogo string) playerPublicDTO {
+func playerToPublicDTO(
+	ctx context.Context,
+	v player.Player,
+	teamName,
+	playerImage,
+	teamLogo string,
+	teamColor []string,
+) playerPublicDTO {
 	ctx, span := startSpan(ctx, "httpapi.playerToPublicDTO")
 	defer span.End()
 
@@ -574,6 +585,28 @@ func playerToPublicDTO(ctx context.Context, v player.Player, teamName, playerIma
 		IsInjured:       injured,
 		ImageURL:        playerImageWithFallback(ctx, v.ID, v.Name, playerImage),
 		TeamLogoURL:     teamLogoWithFallback(ctx, teamName, teamLogo),
+		TeamColor:       copyTeamColor(teamColor),
+	}
+}
+
+func teamColorArray(primary, secondary string) []string {
+	primary = strings.TrimSpace(primary)
+	secondary = strings.TrimSpace(secondary)
+	if primary == "" || secondary == "" {
+		return nil
+	}
+
+	return []string{primary, secondary}
+}
+
+func copyTeamColor(teamColor []string) []string {
+	if len(teamColor) < 2 {
+		return nil
+	}
+
+	return []string{
+		strings.TrimSpace(teamColor[0]),
+		strings.TrimSpace(teamColor[1]),
 	}
 }
 

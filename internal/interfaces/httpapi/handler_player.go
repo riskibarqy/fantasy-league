@@ -30,15 +30,24 @@ func (h *Handler) ListPlayersByLeague(w http.ResponseWriter, r *http.Request) {
 
 	teamNameByID := make(map[string]string, len(teams))
 	teamLogoByID := make(map[string]string, len(teams))
+	teamColorByID := make(map[string][]string, len(teams))
 	for _, t := range teams {
 		teamNameByID[t.ID] = t.Name
 		teamLogoByID[t.ID] = teamLogoWithFallback(ctx, t.Name, t.ImageURL)
+		teamColorByID[t.ID] = teamColorArray(t.PrimaryColor, t.SecondaryColor)
 	}
 
 	items := make([]playerPublicDTO, 0, len(players))
 	for _, p := range players {
 		teamName := teamNameByID[p.TeamID]
-		items = append(items, playerToPublicDTO(ctx, p, teamName, p.ImageURL, teamLogoByID[p.TeamID]))
+		items = append(items, playerToPublicDTO(
+			ctx,
+			p,
+			teamName,
+			p.ImageURL,
+			teamLogoByID[p.TeamID],
+			teamColorByID[p.TeamID],
+		))
 	}
 
 	writeSuccess(ctx, w, http.StatusOK, items)
@@ -66,9 +75,11 @@ func (h *Handler) GetPlayerDetailsByLeague(w http.ResponseWriter, r *http.Reques
 	}
 	teamNameByID := make(map[string]string, len(teams))
 	teamLogoByID := make(map[string]string, len(teams))
+	teamColorByID := make(map[string][]string, len(teams))
 	for _, t := range teams {
 		teamNameByID[t.ID] = t.Name
 		teamLogoByID[t.ID] = teamLogoWithFallback(ctx, t.Name, t.ImageURL)
+		teamColorByID[t.ID] = teamColorArray(t.PrimaryColor, t.SecondaryColor)
 	}
 
 	historyItems, err := h.playerStatsService.ListMatchHistory(ctx, leagueID, playerID, 8)
@@ -87,10 +98,11 @@ func (h *Handler) GetPlayerDetailsByLeague(w http.ResponseWriter, r *http.Reques
 
 	teamName := teamNameByID[item.TeamID]
 	teamLogo := teamLogoByID[item.TeamID]
+	teamColor := teamColorByID[item.TeamID]
 	history := historyToDTO(ctx, item.TeamID, historyItems, teamNameByID)
 
 	writeSuccess(ctx, w, http.StatusOK, playerDetailDTO{
-		Player:     playerToPublicDTO(ctx, item, teamName, item.ImageURL, teamLogo),
+		Player:     playerToPublicDTO(ctx, item, teamName, item.ImageURL, teamLogo, teamColor),
 		Statistics: seasonStatsToDTO(ctx, stats),
 		History:    history,
 	})
@@ -118,9 +130,11 @@ func (h *Handler) GetPlayerHistoryByLeague(w http.ResponseWriter, r *http.Reques
 	}
 	teamNameByID := make(map[string]string, len(teams))
 	teamLogoByID := make(map[string]string, len(teams))
+	teamColorByID := make(map[string][]string, len(teams))
 	for _, t := range teams {
 		teamNameByID[t.ID] = t.Name
 		teamLogoByID[t.ID] = teamLogoWithFallback(ctx, t.Name, t.ImageURL)
+		teamColorByID[t.ID] = teamColorArray(t.PrimaryColor, t.SecondaryColor)
 	}
 
 	historyItems, err := h.playerStatsService.ListMatchHistory(ctx, leagueID, playerID, 8)
@@ -164,9 +178,11 @@ func (h *Handler) ListMySquadPlayers(w http.ResponseWriter, r *http.Request) {
 
 	teamNameByID := make(map[string]string, len(teams))
 	teamLogoByID := make(map[string]string, len(teams))
+	teamColorByID := make(map[string][]string, len(teams))
 	for _, t := range teams {
 		teamNameByID[t.ID] = t.Name
 		teamLogoByID[t.ID] = teamLogoWithFallback(ctx, t.Name, t.ImageURL)
+		teamColorByID[t.ID] = teamColorArray(t.PrimaryColor, t.SecondaryColor)
 	}
 
 	squadPlayerSet := make(map[string]struct{})
@@ -203,6 +219,7 @@ func (h *Handler) ListMySquadPlayers(w http.ResponseWriter, r *http.Request) {
 			InSquad:         inSquad,
 			ImageURL:        playerImageWithFallback(ctx, p.ID, p.Name, p.ImageURL),
 			TeamLogoURL:     teamLogoByID[p.TeamID],
+			TeamColor:       copyTeamColor(teamColorByID[p.TeamID]),
 		})
 	}
 

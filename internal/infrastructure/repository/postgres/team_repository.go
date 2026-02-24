@@ -36,14 +36,7 @@ func (r *TeamRepository) ListByLeague(ctx context.Context, leagueID string) ([]t
 
 	out := make([]team.Team, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, team.Team{
-			ID:        row.PublicID,
-			LeagueID:  row.LeagueID,
-			Name:      row.Name,
-			Short:     row.Short,
-			ImageURL:  row.ImageURL,
-			TeamRefID: nullInt64ToInt64(row.TeamRefID),
-		})
+		out = append(out, mapTeamRow(row))
 	}
 
 	return out, nil
@@ -69,12 +62,18 @@ func (r *TeamRepository) GetByID(ctx context.Context, leagueID, teamID string) (
 		return team.Team{}, false, fmt.Errorf("get team by id: %w", err)
 	}
 
+	return mapTeamRow(row), true, nil
+}
+
+func mapTeamRow(row teamTableModel) team.Team {
 	return team.Team{
-		ID:        row.PublicID,
-		LeagueID:  row.LeagueID,
-		Name:      row.Name,
-		Short:     row.Short,
-		ImageURL:  row.ImageURL,
-		TeamRefID: nullInt64ToInt64(row.TeamRefID),
-	}, true, nil
+		ID:             row.PublicID,
+		LeagueID:       row.LeagueID,
+		Name:           row.Name,
+		Short:          row.Short,
+		ImageURL:       row.ImageURL,
+		PrimaryColor:   nullStringToString(row.PrimaryColor),
+		SecondaryColor: nullStringToString(row.SecondaryColor),
+		TeamRefID:      nullInt64ToInt64(row.TeamRefID),
+	}
 }

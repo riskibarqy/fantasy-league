@@ -109,3 +109,11 @@ func nullStringToInt64(v sql.NullString) int64 {
 
 	return parsed
 }
+
+func nullStringToString(v sql.NullString) string {
+	if !v.Valid {
+		return ""
+	}
+
+	return strings.TrimSpace(v.String)
+}
