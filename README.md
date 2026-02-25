@@ -9,7 +9,8 @@ This project uses a pragmatic Clean Architecture split:
 - `internal/domain`: core entities and business rules (DDD style)
 - `internal/usecase`: application services and orchestration
 - `internal/interfaces/httpapi`: HTTP transport layer
-- `internal/infrastructure`: repository/account-service adapters
+- `internal/infrastructure`: persistence/repository adapters
+- `external`: external service adapters (Anubis, SportMonks, QStash)
 - `cmd/api`: composition root and runtime bootstrap
 
 ## Current Features
@@ -57,7 +58,7 @@ Default introspection request/response expected:
 
 If your Anubis response schema differs, adjust:
 
-- `internal/infrastructure/account/anubis/client.go`
+- `external/anubis/client.go`
 
 ## Run
 

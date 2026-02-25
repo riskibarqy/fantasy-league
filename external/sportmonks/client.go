@@ -3,6 +3,7 @@ package sportmonks
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,23 +28,27 @@ const (
 )
 
 var digitsRegex = regexp.MustCompile(`\d+`)
+var errSportMonksTransient = errors.New("sportmonks transient failure")
 
 type ClientConfig struct {
-	HTTPClient *http.Client
-	BaseURL    string
-	Token      string
-	Timeout    time.Duration
-	MaxRetries int
-	Logger     *slog.Logger
+	HTTPClient     *http.Client
+	BaseURL        string
+	Token          string
+	Timeout        time.Duration
+	MaxRetries     int
+	Logger         *slog.Logger
+	CircuitBreaker resilience.CircuitBreakerConfig
 }
 
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	token      string
-	maxRetries int
-	logger     *slog.Logger
-	flight     resilience.SingleFlight
+	httpClient     *http.Client
+	baseURL        string
+	token          string
+	maxRetries     int
+	logger         *slog.Logger
+	breaker        *resilience.CircuitBreaker
+	circuitEnabled bool
+	flight         resilience.SingleFlight
 }
 
 func NewClient(cfg ClientConfig) *Client {
@@ -64,13 +69,16 @@ func NewClient(cfg ClientConfig) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	breakerCfg := resilience.NormalizeCircuitBreakerConfig(cfg.CircuitBreaker)
 
 	return &Client{
-		httpClient: httpClient,
-		baseURL:    baseURL,
-		token:      strings.TrimSpace(cfg.Token),
-		maxRetries: maxInt(cfg.MaxRetries, 0),
-		logger:     logger,
+		httpClient:     httpClient,
+		baseURL:        baseURL,
+		token:          strings.TrimSpace(cfg.Token),
+		maxRetries:     maxInt(cfg.MaxRetries, 0),
+		logger:         logger,
+		breaker:        resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
+		circuitEnabled: breakerCfg.Enabled,
 	}
 }
 
@@ -372,6 +380,13 @@ func (c *Client) FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int
 }
 
 func (c *Client) doJSON(ctx context.Context, path string, query map[string]string, target any) ([]byte, error) {
+	if c.circuitEnabled {
+		if err := c.breaker.Allow(); err != nil {
+			c.logger.WarnContext(ctx, "sportmonks circuit breaker rejected request", "state", c.breaker.State())
+			return nil, fmt.Errorf("%w: sport data provider is temporarily unavailable", usecase.ErrDependencyUnavailable)
+		}
+	}
+
 	values := url.Values{}
 	for key, value := range query {
 		values.Set(key, value)
@@ -385,7 +400,19 @@ func (c *Client) doJSON(ctx context.Context, path string, query map[string]strin
 
 	key := path + "?" + values.Encode()
 	out, err, _ := c.flight.Do(key, func() (any, error) {
-		return c.executeRequest(ctx, fullURL)
+		raw, reqErr := c.executeRequest(ctx, fullURL)
+		if c.circuitEnabled {
+			if reqErr != nil {
+				if isSportMonksCircuitFailure(reqErr) {
+					c.breaker.RecordFailure()
+				} else {
+					c.breaker.RecordSuccess()
+				}
+			} else {
+				c.breaker.RecordSuccess()
+			}
+		}
+		return raw, reqErr
 	})
 	if err != nil {
 		return nil, err
@@ -414,16 +441,20 @@ func (c *Client) executeRequest(ctx context.Context, fullURL string) ([]byte, er
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("send request: %w", err)
+			lastErr = fmt.Errorf("%w: send request: %v", errSportMonksTransient, err)
 		} else {
 			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
 			_ = resp.Body.Close()
 			if readErr != nil {
-				lastErr = fmt.Errorf("read response body: %w", readErr)
+				lastErr = fmt.Errorf("%w: read response body: %v", errSportMonksTransient, readErr)
 			} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return raw, nil
 			} else {
-				lastErr = fmt.Errorf("provider status=%d body=%s", resp.StatusCode, abbreviateBody(raw))
+				if isRetryableStatus(resp.StatusCode) {
+					lastErr = fmt.Errorf("%w: provider status=%d body=%s", errSportMonksTransient, resp.StatusCode, abbreviateBody(raw))
+				} else {
+					lastErr = fmt.Errorf("provider status=%d body=%s", resp.StatusCode, abbreviateBody(raw))
+				}
 				if !isRetryableStatus(resp.StatusCode) {
 					return nil, lastErr
 				}
@@ -1141,6 +1172,13 @@ func pickNonZero(current, candidate int) int {
 func ptrInt(value int) *int {
 	v := value
 	return &v
+}
+
+func isSportMonksCircuitFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errSportMonksTransient)
 }
 
 func isRetryableStatus(code int) bool {

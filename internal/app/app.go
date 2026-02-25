@@ -9,6 +9,9 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/riskibarqy/fantasy-league/external/anubis"
+	"github.com/riskibarqy/fantasy-league/external/jobqueue"
+	"github.com/riskibarqy/fantasy-league/external/sportmonks"
 	"github.com/riskibarqy/fantasy-league/internal/config"
 	customleaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/customleague"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
@@ -22,14 +25,12 @@ import (
 	scoringdomain "github.com/riskibarqy/fantasy-league/internal/domain/scoring"
 	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
 	teamstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
-	"github.com/riskibarqy/fantasy-league/internal/infrastructure/account/anubis"
-	"github.com/riskibarqy/fantasy-league/internal/infrastructure/jobqueue"
 	cacherepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/cache"
 	postgresrepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/postgres"
-	"github.com/riskibarqy/fantasy-league/internal/infrastructure/sportmonks"
 	"github.com/riskibarqy/fantasy-league/internal/interfaces/httpapi"
 	basecache "github.com/riskibarqy/fantasy-league/internal/platform/cache"
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
+	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -93,6 +94,12 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 			Timeout:    cfg.SportMonksTimeout,
 			MaxRetries: cfg.SportMonksMaxRetries,
 			Logger:     logger,
+			CircuitBreaker: resilience.CircuitBreakerConfig{
+				Enabled:          cfg.SportMonksCircuitEnabled,
+				FailureThreshold: cfg.SportMonksCircuitFailureCount,
+				OpenTimeout:      cfg.SportMonksCircuitOpenTimeout,
+				HalfOpenMaxReq:   cfg.SportMonksCircuitHalfOpenMaxReq,
+			},
 		})
 	}
 	sportDataSyncSvc := usecase.NewSportDataSyncService(
@@ -115,6 +122,12 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 			TargetBaseURL:    cfg.QStashTargetBaseURL,
 			Retries:          cfg.QStashRetries,
 			InternalJobToken: cfg.InternalJobToken,
+			CircuitBreaker: resilience.CircuitBreakerConfig{
+				Enabled:          cfg.QStashCircuitEnabled,
+				FailureThreshold: cfg.QStashCircuitFailureCount,
+				OpenTimeout:      cfg.QStashCircuitOpenTimeout,
+				HalfOpenMaxReq:   cfg.QStashCircuitHalfOpenMaxReq,
+			},
 		}, logger)
 	}
 	jobOrchestrator := usecase.NewJobOrchestratorService(
@@ -148,7 +161,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		cfg.AnubisBaseURL,
 		cfg.AnubisIntrospectURL,
 		cfg.AnubisAdminKey,
-		anubis.CircuitBreakerConfig{
+		resilience.CircuitBreakerConfig{
 			Enabled:          cfg.AnubisCircuitEnabled,
 			FailureThreshold: cfg.AnubisCircuitFailureCount,
 			OpenTimeout:      cfg.AnubisCircuitOpenTimeout,

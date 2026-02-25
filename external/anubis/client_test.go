@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -56,7 +57,7 @@ func TestClientVerifyAccessToken_SendsAdminKeyAndParsesResponse(t *testing.T) {
 		srv.URL,
 		"/v1/auth/introspect",
 		"admin-secret",
-		CircuitBreakerConfig{Enabled: false},
+		resilience.CircuitBreakerConfig{Enabled: false},
 		logger,
 	)
 
@@ -88,7 +89,7 @@ func TestClientVerifyAccessToken_InactiveToken(t *testing.T) {
 		srv.URL,
 		"/v1/auth/introspect",
 		"admin-secret",
-		CircuitBreakerConfig{Enabled: false},
+		resilience.CircuitBreakerConfig{Enabled: false},
 		logger,
 	)
 
@@ -113,7 +114,7 @@ func TestClientVerifyAccessToken_ForbiddenMappedToDependencyUnavailable(t *testi
 		srv.URL,
 		"/v1/auth/introspect",
 		"wrong-key",
-		CircuitBreakerConfig{Enabled: false},
+		resilience.CircuitBreakerConfig{Enabled: false},
 		logger,
 	)
 
@@ -143,7 +144,7 @@ func TestClientVerifyAccessToken_UsesInMemoryCache(t *testing.T) {
 		srv.URL,
 		"/v1/auth/introspect",
 		"admin-secret",
-		CircuitBreakerConfig{Enabled: false},
+		resilience.CircuitBreakerConfig{Enabled: false},
 		logger,
 	)
 

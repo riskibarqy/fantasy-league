@@ -2,6 +2,7 @@ package jobqueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,9 +12,12 @@ import (
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
+
+var errQStashTransient = errors.New("qstash transient failure")
 
 type QStashPublisherConfig struct {
 	BaseURL          string
@@ -22,6 +26,7 @@ type QStashPublisherConfig struct {
 	Retries          int
 	InternalJobToken string
 	Timeout          time.Duration
+	CircuitBreaker   resilience.CircuitBreakerConfig
 }
 
 type QStashPublisher struct {
@@ -32,6 +37,8 @@ type QStashPublisher struct {
 	retries          int
 	internalJobToken string
 	logger           *slog.Logger
+	breaker          *resilience.CircuitBreaker
+	circuitEnabled   bool
 }
 
 func NewQStashPublisher(cfg QStashPublisherConfig, logger *slog.Logger) *QStashPublisher {
@@ -42,6 +49,7 @@ func NewQStashPublisher(cfg QStashPublisherConfig, logger *slog.Logger) *QStashP
 	if logger == nil {
 		logger = slog.Default()
 	}
+	breakerCfg := resilience.NormalizeCircuitBreakerConfig(cfg.CircuitBreaker)
 
 	return &QStashPublisher{
 		client: &http.Client{
@@ -53,10 +61,19 @@ func NewQStashPublisher(cfg QStashPublisherConfig, logger *slog.Logger) *QStashP
 		retries:          cfg.Retries,
 		internalJobToken: strings.TrimSpace(cfg.InternalJobToken),
 		logger:           logger,
+		breaker:          resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
+		circuitEnabled:   breakerCfg.Enabled,
 	}
 }
 
 func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any, delay time.Duration, deduplicationID string) error {
+	if p.circuitEnabled {
+		if err := p.breaker.Allow(); err != nil {
+			p.logger.WarnContext(ctx, "qstash circuit breaker rejected request", "state", p.breaker.State())
+			return fmt.Errorf("qstash is temporarily unavailable: %w", err)
+		}
+	}
+
 	path = "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
 	if strings.TrimSpace(path) == "/" {
 		return fmt.Errorf("job path is required")
@@ -119,7 +136,9 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("publish qstash job target_url=%s publish_url=%s curl=%s: %w", targetURL, publishURL, curlPreview, err)
+		callErr := fmt.Errorf("%w: publish qstash job target_url=%s publish_url=%s curl=%s: %v", errQStashTransient, targetURL, publishURL, curlPreview, err)
+		p.recordCircuitResult(callErr)
+		return callErr
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -127,7 +146,21 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 
 	if resp.StatusCode/100 != 2 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf(
+		if isQStashRetryableStatus(resp.StatusCode) {
+			callErr := fmt.Errorf(
+				"%w: publish qstash job status=%d target_url=%s publish_url=%s body=%s curl=%s",
+				errQStashTransient,
+				resp.StatusCode,
+				targetURL,
+				publishURL,
+				strings.TrimSpace(string(raw)),
+				curlPreview,
+			)
+			p.recordCircuitResult(callErr)
+			return callErr
+		}
+
+		callErr := fmt.Errorf(
 			"publish qstash job status=%d target_url=%s publish_url=%s body=%s curl=%s",
 			resp.StatusCode,
 			targetURL,
@@ -135,9 +168,12 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 			strings.TrimSpace(string(raw)),
 			curlPreview,
 		)
+		p.recordCircuitResult(callErr)
+		return callErr
 	}
 
 	p.logger.InfoContext(ctx, "qstash job published", "path", path, "delay", normalizeDelay(delay), "deduplication_id", deduplicationID)
+	p.recordCircuitResult(nil)
 	return nil
 }
 
@@ -214,4 +250,32 @@ func truncateForLog(value string, max int) string {
 		return value
 	}
 	return value[:max] + "...(truncated)"
+}
+
+func (p *QStashPublisher) recordCircuitResult(err error) {
+	if !p.circuitEnabled || p.breaker == nil {
+		return
+	}
+	if err == nil {
+		p.breaker.RecordSuccess()
+		return
+	}
+	if isQStashCircuitFailure(err) {
+		p.breaker.RecordFailure()
+		return
+	}
+	p.breaker.RecordSuccess()
+}
+
+func isQStashCircuitFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, errQStashTransient)
+}
+
+func isQStashRetryableStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError
 }

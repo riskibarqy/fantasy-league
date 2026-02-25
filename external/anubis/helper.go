@@ -7,22 +7,6 @@ import (
 	"strings"
 )
 
-func normalizeCircuitBreakerConfig(cfg CircuitBreakerConfig) CircuitBreakerConfig {
-	defaults := DefaultCircuitBreakerConfig()
-
-	if cfg.FailureThreshold < 1 {
-		cfg.FailureThreshold = defaults.FailureThreshold
-	}
-	if cfg.OpenTimeout <= 0 {
-		cfg.OpenTimeout = defaults.OpenTimeout
-	}
-	if cfg.HalfOpenMaxReq < 1 {
-		cfg.HalfOpenMaxReq = defaults.HalfOpenMaxReq
-	}
-
-	return cfg
-}
-
 func isCircuitFailure(err error) bool {
 	return errors.Is(err, errAnubisTransient)
 }

@@ -11,56 +11,64 @@ import (
 
 // Config stores runtime configuration for the service.
 type Config struct {
-	AppEnv                      string
-	ServiceName                 string
-	ServiceVersion              string
-	HTTPAddr                    string
-	DBURL                       string
-	DBDisablePreparedBinary     bool
-	CacheEnabled                bool
-	CacheTTL                    time.Duration
-	CORSAllowedOrigins          []string
-	ReadTimeout                 time.Duration
-	WriteTimeout                time.Duration
-	PprofEnabled                bool
-	PprofAddr                   string
-	SwaggerEnabled              bool
-	AnubisBaseURL               string
-	AnubisIntrospectURL         string
-	AnubisAdminKey              string
-	AnubisTimeout               time.Duration
-	AnubisCircuitEnabled        bool
-	AnubisCircuitFailureCount   int
-	AnubisCircuitOpenTimeout    time.Duration
-	AnubisCircuitHalfOpenMaxReq int
-	UptraceEnabled              bool
-	UptraceDSN                  string
-	UptraceCaptureRequestBody   bool
-	UptraceRequestBodyMaxBytes  int
-	PyroscopeEnabled            bool
-	PyroscopeServerAddress      string
-	PyroscopeAppName            string
-	PyroscopeAuthToken          string
-	PyroscopeBasicAuthUser      string
-	PyroscopeBasicAuthPassword  string
-	PyroscopeUploadRate         time.Duration
-	SportMonksEnabled           bool
-	SportMonksBaseURL           string
-	SportMonksToken             string
-	SportMonksTimeout           time.Duration
-	SportMonksMaxRetries        int
-	SportMonksSeasonIDByLeague  map[string]int64
-	SportMonksLeagueIDByLeague  map[string]int64
-	InternalJobToken            string
-	QStashEnabled               bool
-	QStashBaseURL               string
-	QStashToken                 string
-	QStashTargetBaseURL         string
-	QStashRetries               int
-	JobScheduleInterval         time.Duration
-	JobLiveInterval             time.Duration
-	JobPreKickoffLead           time.Duration
-	LogLevel                    slog.Level
+	AppEnv                          string
+	ServiceName                     string
+	ServiceVersion                  string
+	HTTPAddr                        string
+	DBURL                           string
+	DBDisablePreparedBinary         bool
+	CacheEnabled                    bool
+	CacheTTL                        time.Duration
+	CORSAllowedOrigins              []string
+	ReadTimeout                     time.Duration
+	WriteTimeout                    time.Duration
+	PprofEnabled                    bool
+	PprofAddr                       string
+	SwaggerEnabled                  bool
+	AnubisBaseURL                   string
+	AnubisIntrospectURL             string
+	AnubisAdminKey                  string
+	AnubisTimeout                   time.Duration
+	AnubisCircuitEnabled            bool
+	AnubisCircuitFailureCount       int
+	AnubisCircuitOpenTimeout        time.Duration
+	AnubisCircuitHalfOpenMaxReq     int
+	UptraceEnabled                  bool
+	UptraceDSN                      string
+	UptraceCaptureRequestBody       bool
+	UptraceRequestBodyMaxBytes      int
+	PyroscopeEnabled                bool
+	PyroscopeServerAddress          string
+	PyroscopeAppName                string
+	PyroscopeAuthToken              string
+	PyroscopeBasicAuthUser          string
+	PyroscopeBasicAuthPassword      string
+	PyroscopeUploadRate             time.Duration
+	SportMonksEnabled               bool
+	SportMonksBaseURL               string
+	SportMonksToken                 string
+	SportMonksTimeout               time.Duration
+	SportMonksMaxRetries            int
+	SportMonksCircuitEnabled        bool
+	SportMonksCircuitFailureCount   int
+	SportMonksCircuitOpenTimeout    time.Duration
+	SportMonksCircuitHalfOpenMaxReq int
+	SportMonksSeasonIDByLeague      map[string]int64
+	SportMonksLeagueIDByLeague      map[string]int64
+	InternalJobToken                string
+	QStashEnabled                   bool
+	QStashBaseURL                   string
+	QStashToken                     string
+	QStashTargetBaseURL             string
+	QStashRetries                   int
+	QStashCircuitEnabled            bool
+	QStashCircuitFailureCount       int
+	QStashCircuitOpenTimeout        time.Duration
+	QStashCircuitHalfOpenMaxReq     int
+	JobScheduleInterval             time.Duration
+	JobLiveInterval                 time.Duration
+	JobPreKickoffLead               time.Duration
+	LogLevel                        slog.Level
 }
 
 func Load() (Config, error) {
@@ -167,6 +175,31 @@ func Load() (Config, error) {
 	if sportMonksMaxRetries < 0 {
 		return Config{}, fmt.Errorf("SPORTMONKS_MAX_RETRIES must be >= 0")
 	}
+	sportMonksCircuitEnabled, err := strconv.ParseBool(getEnv("SPORTMONKS_CIRCUIT_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_CIRCUIT_ENABLED: %w", err)
+	}
+	sportMonksCircuitFailureCount, err := getEnvAsInt("SPORTMONKS_CIRCUIT_FAILURE_COUNT", 5)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_CIRCUIT_FAILURE_COUNT: %w", err)
+	}
+	if sportMonksCircuitFailureCount < 1 {
+		return Config{}, fmt.Errorf("SPORTMONKS_CIRCUIT_FAILURE_COUNT must be >= 1")
+	}
+	sportMonksCircuitOpenTimeout, err := time.ParseDuration(getEnv("SPORTMONKS_CIRCUIT_OPEN_TIMEOUT", "15s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_CIRCUIT_OPEN_TIMEOUT: %w", err)
+	}
+	if sportMonksCircuitOpenTimeout <= 0 {
+		return Config{}, fmt.Errorf("SPORTMONKS_CIRCUIT_OPEN_TIMEOUT must be > 0")
+	}
+	sportMonksCircuitHalfOpenMaxReq, err := getEnvAsInt("SPORTMONKS_CIRCUIT_HALF_OPEN_MAX_REQ", 2)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_CIRCUIT_HALF_OPEN_MAX_REQ: %w", err)
+	}
+	if sportMonksCircuitHalfOpenMaxReq < 1 {
+		return Config{}, fmt.Errorf("SPORTMONKS_CIRCUIT_HALF_OPEN_MAX_REQ must be >= 1")
+	}
 	sportMonksBaseURL := strings.TrimSpace(getEnv("SPORTMONKS_BASE_URL", "https://api.sportmonks.com/v3/football"))
 	sportMonksToken := strings.TrimSpace(getEnv("SPORTMONKS_TOKEN", ""))
 	sportMonksSeasonIDByLeague, err := parseIDMap(getEnv("SPORTMONKS_SEASON_ID_MAP", ""))
@@ -197,6 +230,31 @@ func Load() (Config, error) {
 	if qstashRetries < 0 {
 		return Config{}, fmt.Errorf("QSTASH_RETRIES must be >= 0")
 	}
+	qstashCircuitEnabled, err := strconv.ParseBool(getEnv("QSTASH_CIRCUIT_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_CIRCUIT_ENABLED: %w", err)
+	}
+	qstashCircuitFailureCount, err := getEnvAsInt("QSTASH_CIRCUIT_FAILURE_COUNT", 5)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_CIRCUIT_FAILURE_COUNT: %w", err)
+	}
+	if qstashCircuitFailureCount < 1 {
+		return Config{}, fmt.Errorf("QSTASH_CIRCUIT_FAILURE_COUNT must be >= 1")
+	}
+	qstashCircuitOpenTimeout, err := time.ParseDuration(getEnv("QSTASH_CIRCUIT_OPEN_TIMEOUT", "15s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_CIRCUIT_OPEN_TIMEOUT: %w", err)
+	}
+	if qstashCircuitOpenTimeout <= 0 {
+		return Config{}, fmt.Errorf("QSTASH_CIRCUIT_OPEN_TIMEOUT must be > 0")
+	}
+	qstashCircuitHalfOpenMaxReq, err := getEnvAsInt("QSTASH_CIRCUIT_HALF_OPEN_MAX_REQ", 2)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_CIRCUIT_HALF_OPEN_MAX_REQ: %w", err)
+	}
+	if qstashCircuitHalfOpenMaxReq < 1 {
+		return Config{}, fmt.Errorf("QSTASH_CIRCUIT_HALF_OPEN_MAX_REQ must be >= 1")
+	}
 	qstashBaseURL := strings.TrimSpace(getEnv("QSTASH_BASE_URL", "https://qstash.upstash.io"))
 	qstashToken := strings.TrimSpace(getEnv("QSTASH_TOKEN", ""))
 	qstashTargetBaseURL := strings.TrimSpace(getEnv("QSTASH_TARGET_BASE_URL", ""))
@@ -214,45 +272,53 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		AppEnv:                     appEnv,
-		ServiceName:                getEnv("APP_SERVICE_NAME", "fantasy-league-api"),
-		ServiceVersion:             getEnv("APP_SERVICE_VERSION", "dev"),
-		HTTPAddr:                   getEnv("APP_HTTP_ADDR", ":8080"),
-		DBURL:                      getEnv("DB_URL", "postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable"),
-		DBDisablePreparedBinary:    true,
-		CORSAllowedOrigins:         splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "*")),
-		PprofEnabled:               pprofEnabled,
-		PprofAddr:                  pprofAddr,
-		SwaggerEnabled:             swaggerEnabled,
-		AnubisBaseURL:              getEnv("ANUBIS_BASE_URL", "http://localhost:8081"),
-		AnubisIntrospectURL:        getEnv("ANUBIS_INTROSPECT_PATH", "/v1/auth/introspect"),
-		AnubisAdminKey:             getEnv("ANUBIS_ADMIN_KEY", ""),
-		UptraceEnabled:             uptraceEnabled,
-		UptraceDSN:                 uptraceDSN,
-		UptraceCaptureRequestBody:  uptraceCaptureRequestBody,
-		UptraceRequestBodyMaxBytes: uptraceRequestBodyMaxBytes,
-		PyroscopeEnabled:           pyroscopeEnabled,
-		PyroscopeServerAddress:     pyroscopeServerAddress,
-		PyroscopeAuthToken:         strings.TrimSpace(getEnv("PYROSCOPE_AUTH_TOKEN", "")),
-		PyroscopeBasicAuthUser:     strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_USER", "")),
-		PyroscopeBasicAuthPassword: strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_PASSWORD", "")),
-		PyroscopeUploadRate:        pyroscopeUploadRate,
-		SportMonksEnabled:          sportMonksEnabled,
-		SportMonksBaseURL:          sportMonksBaseURL,
-		SportMonksToken:            sportMonksToken,
-		SportMonksTimeout:          sportMonksTimeout,
-		SportMonksMaxRetries:       sportMonksMaxRetries,
-		SportMonksSeasonIDByLeague: sportMonksSeasonIDByLeague,
-		SportMonksLeagueIDByLeague: sportMonksLeagueIDByLeague,
-		InternalJobToken:           internalJobToken,
-		QStashEnabled:              qstashEnabled,
-		QStashBaseURL:              qstashBaseURL,
-		QStashToken:                qstashToken,
-		QStashTargetBaseURL:        qstashTargetBaseURL,
-		QStashRetries:              qstashRetries,
-		JobScheduleInterval:        jobScheduleInterval,
-		JobLiveInterval:            jobLiveInterval,
-		JobPreKickoffLead:          jobPreKickoffLead,
+		AppEnv:                          appEnv,
+		ServiceName:                     getEnv("APP_SERVICE_NAME", "fantasy-league-api"),
+		ServiceVersion:                  getEnv("APP_SERVICE_VERSION", "dev"),
+		HTTPAddr:                        getEnv("APP_HTTP_ADDR", ":8080"),
+		DBURL:                           getEnv("DB_URL", "postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable"),
+		DBDisablePreparedBinary:         true,
+		CORSAllowedOrigins:              splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "*")),
+		PprofEnabled:                    pprofEnabled,
+		PprofAddr:                       pprofAddr,
+		SwaggerEnabled:                  swaggerEnabled,
+		AnubisBaseURL:                   getEnv("ANUBIS_BASE_URL", "http://localhost:8081"),
+		AnubisIntrospectURL:             getEnv("ANUBIS_INTROSPECT_PATH", "/v1/auth/introspect"),
+		AnubisAdminKey:                  getEnv("ANUBIS_ADMIN_KEY", ""),
+		UptraceEnabled:                  uptraceEnabled,
+		UptraceDSN:                      uptraceDSN,
+		UptraceCaptureRequestBody:       uptraceCaptureRequestBody,
+		UptraceRequestBodyMaxBytes:      uptraceRequestBodyMaxBytes,
+		PyroscopeEnabled:                pyroscopeEnabled,
+		PyroscopeServerAddress:          pyroscopeServerAddress,
+		PyroscopeAuthToken:              strings.TrimSpace(getEnv("PYROSCOPE_AUTH_TOKEN", "")),
+		PyroscopeBasicAuthUser:          strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_USER", "")),
+		PyroscopeBasicAuthPassword:      strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_PASSWORD", "")),
+		PyroscopeUploadRate:             pyroscopeUploadRate,
+		SportMonksEnabled:               sportMonksEnabled,
+		SportMonksBaseURL:               sportMonksBaseURL,
+		SportMonksToken:                 sportMonksToken,
+		SportMonksTimeout:               sportMonksTimeout,
+		SportMonksMaxRetries:            sportMonksMaxRetries,
+		SportMonksCircuitEnabled:        sportMonksCircuitEnabled,
+		SportMonksCircuitFailureCount:   sportMonksCircuitFailureCount,
+		SportMonksCircuitOpenTimeout:    sportMonksCircuitOpenTimeout,
+		SportMonksCircuitHalfOpenMaxReq: sportMonksCircuitHalfOpenMaxReq,
+		SportMonksSeasonIDByLeague:      sportMonksSeasonIDByLeague,
+		SportMonksLeagueIDByLeague:      sportMonksLeagueIDByLeague,
+		InternalJobToken:                internalJobToken,
+		QStashEnabled:                   qstashEnabled,
+		QStashBaseURL:                   qstashBaseURL,
+		QStashToken:                     qstashToken,
+		QStashTargetBaseURL:             qstashTargetBaseURL,
+		QStashRetries:                   qstashRetries,
+		QStashCircuitEnabled:            qstashCircuitEnabled,
+		QStashCircuitFailureCount:       qstashCircuitFailureCount,
+		QStashCircuitOpenTimeout:        qstashCircuitOpenTimeout,
+		QStashCircuitHalfOpenMaxReq:     qstashCircuitHalfOpenMaxReq,
+		JobScheduleInterval:             jobScheduleInterval,
+		JobLiveInterval:                 jobLiveInterval,
+		JobPreKickoffLead:               jobPreKickoffLead,
 	}
 	cfg.PyroscopeAppName = strings.TrimSpace(getEnv("PYROSCOPE_APP_NAME", cfg.ServiceName))
 	if cfg.PyroscopeEnabled && cfg.PyroscopeAppName == "" {

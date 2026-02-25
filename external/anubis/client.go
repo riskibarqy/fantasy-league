@@ -19,22 +19,6 @@ import (
 
 var errAnubisTransient = errors.New("anubis transient failure")
 
-type CircuitBreakerConfig struct {
-	Enabled          bool
-	FailureThreshold int
-	OpenTimeout      time.Duration
-	HalfOpenMaxReq   int
-}
-
-func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
-	return CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 5,
-		OpenTimeout:      15 * time.Second,
-		HalfOpenMaxReq:   2,
-	}
-}
-
 type Client struct {
 	httpClient     *http.Client
 	introspectURL  string
@@ -50,7 +34,7 @@ func NewClient(
 	httpClient *http.Client,
 	baseURL, introspectPath string,
 	adminKey string,
-	breakerCfg CircuitBreakerConfig,
+	breakerCfg resilience.CircuitBreakerConfig,
 	logger *slog.Logger,
 ) *Client {
 	if logger == nil {
@@ -61,7 +45,7 @@ func NewClient(
 		httpClient = &http.Client{}
 	}
 
-	breakerCfg = normalizeCircuitBreakerConfig(breakerCfg)
+	breakerCfg = resilience.NormalizeCircuitBreakerConfig(breakerCfg)
 
 	return &Client{
 		httpClient:     httpClient,
