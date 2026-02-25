@@ -131,6 +131,207 @@ func TestLeagueStandingService_ListByLeague_UsesStoredRowsWhenAvailable(t *testi
 	}
 }
 
+func TestLeagueStandingService_ListByLeague_RerankStoredRowsByHeadToHead(t *testing.T) {
+	t.Parallel()
+
+	const leagueID = "idn-liga-1-2025"
+	repo := &stubLeagueRepository{
+		byID: map[string]league.League{
+			leagueID: {ID: leagueID, Name: "Liga 1"},
+		},
+	}
+
+	standingsRepo := &stubLeagueStandingRepository{
+		rows: map[string][]leaguestanding.Standing{
+			standingsKey(leagueID, false): {
+				{
+					LeagueID:        leagueID,
+					TeamID:          "persija",
+					Position:        1,
+					Played:          23,
+					Won:             16,
+					Draw:            2,
+					Lost:            5,
+					GoalsFor:        42,
+					GoalsAgainst:    19,
+					GoalDifference:  23,
+					Points:          50,
+					SourceUpdatedAt: nil,
+				},
+				{
+					LeagueID:       leagueID,
+					TeamID:         "persib",
+					Position:       2,
+					Played:         21,
+					Won:            16,
+					Draw:           2,
+					Lost:           3,
+					GoalsFor:       32,
+					GoalsAgainst:   11,
+					GoalDifference: 21,
+					Points:         50,
+				},
+			},
+		},
+	}
+
+	homeWin := 1
+	awayLose := 0
+	fixturesRepo := &stubFixtureRepository{
+		byLeague: map[string][]fixture.Fixture{
+			leagueID: {
+				{
+					ID:         "f-persib-persija",
+					LeagueID:   leagueID,
+					HomeTeamID: "persib",
+					AwayTeamID: "persija",
+					HomeScore:  &homeWin,
+					AwayScore:  &awayLose,
+					Status:     fixture.StatusFinished,
+				},
+			},
+		},
+	}
+
+	service := NewLeagueStandingService(repo, standingsRepo, fixturesRepo)
+
+	got, err := service.ListByLeague(context.Background(), leagueID, false)
+	if err != nil {
+		t.Fatalf("ListByLeague error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 standings rows, got=%d", len(got))
+	}
+
+	if got[0].TeamID != "persib" || got[0].Position != 1 {
+		t.Fatalf("expected persib to rank first from head-to-head, got=%+v", got[0])
+	}
+	if got[1].TeamID != "persija" || got[1].Position != 2 {
+		t.Fatalf("expected persija to rank second from head-to-head, got=%+v", got[1])
+	}
+}
+
+func TestLeagueStandingService_ListByLeague_KeepProviderOrderWhenHeadToHeadUnavailable(t *testing.T) {
+	t.Parallel()
+
+	const leagueID = "idn-liga-1-2025"
+	repo := &stubLeagueRepository{
+		byID: map[string]league.League{
+			leagueID: {ID: leagueID, Name: "Liga 1"},
+		},
+	}
+
+	standingsRepo := &stubLeagueStandingRepository{
+		rows: map[string][]leaguestanding.Standing{
+			standingsKey(leagueID, false): {
+				{
+					LeagueID:       leagueID,
+					TeamID:         "team-a",
+					Position:       1,
+					Points:         50,
+					GoalDifference: 10,
+					GoalsFor:       30,
+				},
+				{
+					LeagueID:       leagueID,
+					TeamID:         "team-b",
+					Position:       2,
+					Points:         50,
+					GoalDifference: 10,
+					GoalsFor:       30,
+				},
+			},
+		},
+	}
+
+	fixturesRepo := &stubFixtureRepository{
+		byLeague: map[string][]fixture.Fixture{
+			leagueID: {},
+		},
+	}
+
+	service := NewLeagueStandingService(repo, standingsRepo, fixturesRepo)
+	got, err := service.ListByLeague(context.Background(), leagueID, false)
+	if err != nil {
+		t.Fatalf("ListByLeague error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 standings rows, got=%d", len(got))
+	}
+	if got[0].TeamID != "team-a" || got[0].Position != 1 {
+		t.Fatalf("expected provider order to stay for rank 1, got=%+v", got[0])
+	}
+	if got[1].TeamID != "team-b" || got[1].Position != 2 {
+		t.Fatalf("expected provider order to stay for rank 2, got=%+v", got[1])
+	}
+}
+
+func TestLeagueStandingService_ListByLeague_HeadToHeadThenGoalDifference(t *testing.T) {
+	t.Parallel()
+
+	const leagueID = "idn-liga-1-2025"
+	repo := &stubLeagueRepository{
+		byID: map[string]league.League{
+			leagueID: {ID: leagueID, Name: "Liga 1"},
+		},
+	}
+
+	standingsRepo := &stubLeagueStandingRepository{
+		rows: map[string][]leaguestanding.Standing{
+			standingsKey(leagueID, false): {
+				{
+					LeagueID:       leagueID,
+					TeamID:         "team-b",
+					Position:       1,
+					Points:         50,
+					GoalDifference: 23,
+					GoalsFor:       42,
+				},
+				{
+					LeagueID:       leagueID,
+					TeamID:         "team-a",
+					Position:       2,
+					Points:         50,
+					GoalDifference: 21,
+					GoalsFor:       32,
+				},
+			},
+		},
+	}
+
+	one := 1
+	fixturesRepo := &stubFixtureRepository{
+		byLeague: map[string][]fixture.Fixture{
+			leagueID: {
+				{
+					ID:         "f-a-b",
+					LeagueID:   leagueID,
+					HomeTeamID: "team-a",
+					AwayTeamID: "team-b",
+					HomeScore:  &one,
+					AwayScore:  &one,
+					Status:     fixture.StatusFinished,
+				},
+			},
+		},
+	}
+
+	service := NewLeagueStandingService(repo, standingsRepo, fixturesRepo)
+	got, err := service.ListByLeague(context.Background(), leagueID, false)
+	if err != nil {
+		t.Fatalf("ListByLeague error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 standings rows, got=%d", len(got))
+	}
+	if got[0].TeamID != "team-b" || got[0].Position != 1 {
+		t.Fatalf("expected team-b rank 1 by overall goal difference, got=%+v", got[0])
+	}
+	if got[1].TeamID != "team-a" || got[1].Position != 2 {
+		t.Fatalf("expected team-a rank 2 by overall goal difference, got=%+v", got[1])
+	}
+}
+
 type stubLeagueRepository struct {
 	byID map[string]league.League
 }

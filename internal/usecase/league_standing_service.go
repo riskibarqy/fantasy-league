@@ -48,7 +48,7 @@ func (s *LeagueStandingService) ListByLeague(ctx context.Context, leagueID strin
 		return nil, fmt.Errorf("list league standings: %w", err)
 	}
 	if len(items) > 0 {
-		return items, nil
+		return s.rerankStandingsByHeadToHead(ctx, leagueID, items), nil
 	}
 
 	fallbackItems, err := s.listFromFixtures(ctx, leagueID, live)
@@ -56,7 +56,7 @@ func (s *LeagueStandingService) ListByLeague(ctx context.Context, leagueID strin
 		return nil, err
 	}
 
-	return fallbackItems, nil
+	return s.rerankStandingsByHeadToHead(ctx, leagueID, fallbackItems), nil
 }
 
 type standingsAggregate struct {
@@ -183,4 +183,181 @@ func (s *LeagueStandingService) listFromFixtures(ctx context.Context, leagueID s
 	}
 
 	return out, nil
+}
+
+type headToHeadAggregate struct {
+	Points       int
+	GoalsFor     int
+	GoalsAgainst int
+}
+
+func (s *LeagueStandingService) rerankStandingsByHeadToHead(
+	ctx context.Context,
+	leagueID string,
+	items []leaguestanding.Standing,
+) []leaguestanding.Standing {
+	out := cloneStandings(items)
+	if len(out) <= 1 {
+		if len(out) == 1 {
+			out[0].Position = 1
+		}
+		return out
+	}
+
+	sortStandingsBase(out)
+
+	if s.fixtureRepo != nil {
+		fixtures, err := s.fixtureRepo.ListByLeague(ctx, leagueID)
+		if err == nil && len(fixtures) > 0 {
+			for start := 0; start < len(out); {
+				end := start + 1
+				for end < len(out) && out[end].Points == out[start].Points {
+					end++
+				}
+				if end-start > 1 {
+					rerankStandingGroupWithHeadToHead(out[start:end], fixtures)
+				}
+				start = end
+			}
+		}
+	}
+
+	assignStandingPositions(out)
+	return out
+}
+
+func sortStandingsBase(items []leaguestanding.Standing) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Points != items[j].Points {
+			return items[i].Points > items[j].Points
+		}
+		goalDiffI := effectiveGoalDifference(items[i])
+		goalDiffJ := effectiveGoalDifference(items[j])
+		if goalDiffI != goalDiffJ {
+			return goalDiffI > goalDiffJ
+		}
+		if items[i].GoalsFor != items[j].GoalsFor {
+			return items[i].GoalsFor > items[j].GoalsFor
+		}
+		if items[i].Position > 0 && items[j].Position > 0 && items[i].Position != items[j].Position {
+			return items[i].Position < items[j].Position
+		}
+		return items[i].TeamID < items[j].TeamID
+	})
+}
+
+func assignStandingPositions(items []leaguestanding.Standing) {
+	for idx := range items {
+		items[idx].Position = idx + 1
+	}
+}
+
+func rerankStandingGroupWithHeadToHead(group []leaguestanding.Standing, fixtures []fixture.Fixture) {
+	teamIDs := make(map[string]struct{}, len(group))
+	for _, row := range group {
+		teamID := strings.TrimSpace(row.TeamID)
+		if teamID == "" {
+			continue
+		}
+		teamIDs[teamID] = struct{}{}
+	}
+	if len(teamIDs) <= 1 {
+		return
+	}
+
+	stats := computeHeadToHeadStats(fixtures, teamIDs)
+	sort.SliceStable(group, func(i, j int) bool {
+		left := stats[group[i].TeamID]
+		right := stats[group[j].TeamID]
+
+		if left.Points != right.Points {
+			return left.Points > right.Points
+		}
+
+		overallLeftGoalDiff := effectiveGoalDifference(group[i])
+		overallRightGoalDiff := effectiveGoalDifference(group[j])
+		if overallLeftGoalDiff != overallRightGoalDiff {
+			return overallLeftGoalDiff > overallRightGoalDiff
+		}
+		if group[i].GoalsFor != group[j].GoalsFor {
+			return group[i].GoalsFor > group[j].GoalsFor
+		}
+		if group[i].Position > 0 && group[j].Position > 0 && group[i].Position != group[j].Position {
+			return group[i].Position < group[j].Position
+		}
+		return group[i].TeamID < group[j].TeamID
+	})
+}
+
+func computeHeadToHeadStats(
+	fixtures []fixture.Fixture,
+	teams map[string]struct{},
+) map[string]headToHeadAggregate {
+	out := make(map[string]headToHeadAggregate, len(teams))
+	for teamID := range teams {
+		out[teamID] = headToHeadAggregate{}
+	}
+
+	for _, match := range fixtures {
+		status := fixture.NormalizeStatus(match.Status)
+		if !fixture.IsFinishedStatus(status) &&
+			(match.HomeScore == nil || match.AwayScore == nil || fixture.IsCancelledLikeStatus(status)) {
+			continue
+		}
+		if match.HomeScore == nil || match.AwayScore == nil {
+			continue
+		}
+
+		homeTeamID := strings.TrimSpace(match.HomeTeamID)
+		awayTeamID := strings.TrimSpace(match.AwayTeamID)
+		if homeTeamID == "" || awayTeamID == "" {
+			continue
+		}
+
+		if _, ok := teams[homeTeamID]; !ok {
+			continue
+		}
+		if _, ok := teams[awayTeamID]; !ok {
+			continue
+		}
+
+		homeGoals := *match.HomeScore
+		awayGoals := *match.AwayScore
+
+		home := out[homeTeamID]
+		away := out[awayTeamID]
+
+		home.GoalsFor += homeGoals
+		home.GoalsAgainst += awayGoals
+		away.GoalsFor += awayGoals
+		away.GoalsAgainst += homeGoals
+
+		switch {
+		case homeGoals > awayGoals:
+			home.Points += 3
+		case homeGoals < awayGoals:
+			away.Points += 3
+		default:
+			home.Points++
+			away.Points++
+		}
+
+		out[homeTeamID] = home
+		out[awayTeamID] = away
+	}
+
+	return out
+}
+
+func effectiveGoalDifference(item leaguestanding.Standing) int {
+	if item.GoalDifference != 0 || (item.GoalsFor == 0 && item.GoalsAgainst == 0) {
+		return item.GoalDifference
+	}
+	return item.GoalsFor - item.GoalsAgainst
+}
+
+func cloneStandings(items []leaguestanding.Standing) []leaguestanding.Standing {
+	out := make([]leaguestanding.Standing, len(items))
+	copy(out, items)
+	return out
 }

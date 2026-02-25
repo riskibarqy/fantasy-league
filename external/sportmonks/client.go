@@ -546,8 +546,9 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 			SourceUpdatedAt: parseProviderDateTime(getString(item, "updated_at")),
 		}
 
+		detailPriority := make(map[string]int, 8)
 		for _, detail := range extractStandingDetails(item["details"]) {
-			applyStandingDetail(&row, detail)
+			applyStandingDetail(&row, detailPriority, detail)
 		}
 
 		totalMatches := row.Won + row.Draw + row.Lost
@@ -790,11 +791,31 @@ func standingRowDedupKey(item map[string]any) string {
 	return fmt.Sprintf("%d:%d:%d", participantID, position, points)
 }
 
-func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
+var standingMetricTypeByID = map[int64]string{
+	117: "goals_for",
+	118: "goals_against",
+	119: "played",
+	120: "played",
+	121: "won",
+	122: "won",
+	123: "draw",
+	124: "draw",
+	125: "lost",
+	126: "lost",
+	127: "points",
+	128: "points",
+	129: "played",
+	130: "won",
+	131: "draw",
+	132: "lost",
+	133: "goals_for",
+	134: "goals_against",
+	179: "goal_difference",
+	187: "points",
+}
+
+func applyStandingDetail(row *usecase.ExternalStanding, priorityByMetric map[string]int, detail map[string]any) {
 	if row == nil {
-		return
-	}
-	if !isStandingDetailAggregate(detail) {
 		return
 	}
 
@@ -807,11 +828,12 @@ func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 	if candidate == "" {
 		candidate = normalizeStandingDetailType(getString(detail, "type"))
 	}
-	if candidate == "" {
-		return
-	}
 	if strings.Contains(candidate, "percentage") || strings.Contains(candidate, "percent") || strings.Contains(candidate, "rate") {
 		return
+	}
+	typeID := getInt64(detail, "type_id")
+	if typeID <= 0 {
+		typeID = getInt64(typeInfo, "id")
 	}
 
 	value := detail["value"]
@@ -823,24 +845,12 @@ func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 		return
 	}
 
-	switch {
-	case candidate == "won" || candidate == "wins" || candidate == "win" || candidate == "matches won" || candidate == "games won":
-		row.Won = pickNonZero(row.Won, numeric)
-	case candidate == "draw" || candidate == "draws" || candidate == "matches drawn" || candidate == "games drawn":
-		row.Draw = pickNonZero(row.Draw, numeric)
-	case candidate == "lost" || candidate == "loss" || candidate == "losses" || candidate == "defeats" || candidate == "matches lost" || candidate == "games lost":
-		row.Lost = pickNonZero(row.Lost, numeric)
-	case candidate == "goals for" || candidate == "goals scored" || candidate == "scored goals":
-		row.GoalsFor = pickNonZero(row.GoalsFor, numeric)
-	case candidate == "goals against" || candidate == "goals conceded":
-		row.GoalsAgainst = pickNonZero(row.GoalsAgainst, numeric)
-	case candidate == "goal difference" || candidate == "goaldifference":
-		row.GoalDifference = pickNonZero(row.GoalDifference, numeric)
-	case candidate == "points" || candidate == "point":
-		row.Points = pickNonZero(row.Points, numeric)
-	case candidate == "played" || candidate == "matches played" || candidate == "games played" || candidate == "matches" || candidate == "games":
-		row.Played = pickNonZero(row.Played, numeric)
+	metric, ok := standingMetricFromType(typeID, candidate)
+	if !ok {
+		return
 	}
+	priority := standingMetricPriority(typeID, candidate)
+	setStandingMetric(row, priorityByMetric, metric, numeric, priority)
 }
 
 func normalizeStandingDetailType(raw string) string {
@@ -853,36 +863,134 @@ func normalizeStandingDetailType(raw string) string {
 	return strings.Join(strings.Fields(raw), " ")
 }
 
-func isStandingDetailAggregate(detail map[string]any) bool {
-	if detail == nil {
-		return false
+func standingMetricFromType(typeID int64, candidate string) (string, bool) {
+	if metric, ok := standingMetricTypeByID[typeID]; ok {
+		return metric, true
 	}
-
-	location := strings.ToLower(strings.TrimSpace(firstNonEmpty(
-		getString(detail, "location"),
-		getString(detail, "scope"),
-		getString(detail, "segment"),
-	)))
-	if location == "" {
-		locationInfo := relationDataMap(detail["location"])
-		location = strings.ToLower(strings.TrimSpace(firstNonEmpty(
-			getString(locationInfo, "developer_name"),
-			getString(locationInfo, "code"),
-			getString(locationInfo, "name"),
-		)))
+	if candidate == "" {
+		return "", false
 	}
-	if location == "" {
-		return true
-	}
-
-	switch location {
-	case "all", "overall", "total", "aggregate", "full":
-		return true
-	case "home", "away":
-		return false
+	switch {
+	case strings.Contains(candidate, "goal difference") || strings.Contains(candidate, "goaldifference"):
+		return "goal_difference", true
+	case strings.Contains(candidate, "goals against") || strings.Contains(candidate, "goals conceded") || strings.Contains(candidate, "conceded"):
+		return "goals_against", true
+	case strings.Contains(candidate, "goals for") || strings.Contains(candidate, "goals scored") || strings.Contains(candidate, "scored goals"):
+		return "goals_for", true
+	case strings.Contains(candidate, "matches played") || strings.Contains(candidate, "games played"):
+		return "played", true
+	case candidate == "played" || candidate == "matches" || candidate == "games":
+		return "played", true
+	case strings.Contains(candidate, "matches won") || strings.Contains(candidate, "games won") || candidate == "won" || candidate == "wins" || candidate == "win":
+		return "won", true
+	case strings.Contains(candidate, "matches drawn") || strings.Contains(candidate, "games drawn") || candidate == "draw" || candidate == "draws":
+		return "draw", true
+	case strings.Contains(candidate, "matches lost") || strings.Contains(candidate, "games lost") || candidate == "lost" || candidate == "loss" || candidate == "losses" || candidate == "defeats":
+		return "lost", true
+	case candidate == "points" || candidate == "point" || strings.Contains(candidate, " points"):
+		return "points", true
 	default:
-		return true
+		return "", false
 	}
+}
+
+func standingMetricPriority(typeID int64, candidate string) int {
+	switch typeID {
+	case 129, 130, 131, 132, 133, 134, 179, 187:
+		return 3
+	case 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128:
+		return 1
+	}
+	if strings.Contains(candidate, "overall") || strings.Contains(candidate, "total") || strings.Contains(candidate, "aggregate") || strings.Contains(candidate, "all") {
+		return 3
+	}
+	if strings.Contains(candidate, "home") || strings.Contains(candidate, "away") {
+		return 1
+	}
+	return 2
+}
+
+func setStandingMetric(row *usecase.ExternalStanding, priorityByMetric map[string]int, metric string, value int, priority int) {
+	currentValue := getStandingMetricValue(row, metric)
+	currentPriority, ok := priorityByMetric[metric]
+	if !ok {
+		priorityByMetric[metric] = priority
+		setStandingMetricValue(row, metric, value)
+		return
+	}
+	if priority > currentPriority {
+		priorityByMetric[metric] = priority
+		setStandingMetricValue(row, metric, value)
+		return
+	}
+	if priority < currentPriority {
+		return
+	}
+	if !shouldReplaceStandingMetricValue(metric, currentValue, value) {
+		return
+	}
+	setStandingMetricValue(row, metric, value)
+}
+
+func getStandingMetricValue(row *usecase.ExternalStanding, metric string) int {
+	switch metric {
+	case "played":
+		return row.Played
+	case "won":
+		return row.Won
+	case "draw":
+		return row.Draw
+	case "lost":
+		return row.Lost
+	case "goals_for":
+		return row.GoalsFor
+	case "goals_against":
+		return row.GoalsAgainst
+	case "goal_difference":
+		return row.GoalDifference
+	case "points":
+		return row.Points
+	default:
+		return 0
+	}
+}
+
+func setStandingMetricValue(row *usecase.ExternalStanding, metric string, value int) {
+	switch metric {
+	case "played":
+		row.Played = value
+	case "won":
+		row.Won = value
+	case "draw":
+		row.Draw = value
+	case "lost":
+		row.Lost = value
+	case "goals_for":
+		row.GoalsFor = value
+	case "goals_against":
+		row.GoalsAgainst = value
+	case "goal_difference":
+		row.GoalDifference = value
+	case "points":
+		row.Points = value
+	}
+}
+
+func shouldReplaceStandingMetricValue(metric string, current, incoming int) bool {
+	if incoming == current {
+		return false
+	}
+	if metric == "goal_difference" {
+		return absInt(incoming) > absInt(current)
+	}
+	return incoming > current
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func parseStandingForm(value any) string {
