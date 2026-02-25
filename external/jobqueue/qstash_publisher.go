@@ -136,7 +136,7 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		callErr := fmt.Errorf("%w: publish qstash job target_url=%s publish_url=%s curl=%s: %v", errQStashTransient, targetURL, publishURL, curlPreview, err)
+		callErr := fmt.Errorf("%w: publish qstash job target_url=%s publish_url=%s: %v", errQStashTransient, targetURL, publishURL, err)
 		p.recordCircuitResult(callErr)
 		return callErr
 	}
@@ -148,25 +148,23 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if isQStashRetryableStatus(resp.StatusCode) {
 			callErr := fmt.Errorf(
-				"%w: publish qstash job status=%d target_url=%s publish_url=%s body=%s curl=%s",
+				"%w: publish qstash job status=%d target_url=%s publish_url=%s body=%s",
 				errQStashTransient,
 				resp.StatusCode,
 				targetURL,
 				publishURL,
 				strings.TrimSpace(string(raw)),
-				curlPreview,
 			)
 			p.recordCircuitResult(callErr)
 			return callErr
 		}
 
 		callErr := fmt.Errorf(
-			"publish qstash job status=%d target_url=%s publish_url=%s body=%s curl=%s",
+			"publish qstash job status=%d target_url=%s publish_url=%s body=%s",
 			resp.StatusCode,
 			targetURL,
 			publishURL,
 			strings.TrimSpace(string(raw)),
-			curlPreview,
 		)
 		p.recordCircuitResult(callErr)
 		return callErr

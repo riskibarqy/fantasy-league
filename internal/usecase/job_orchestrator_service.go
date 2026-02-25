@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -59,6 +60,8 @@ type JobOrchestratorService struct {
 	logger       *slog.Logger
 	now          func() time.Time
 }
+
+var dedupUnsafeCharRegex = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 func NewJobOrchestratorService(
 	leagueRepo league.Repository,
@@ -246,8 +249,18 @@ func dedupKey(prefix, leagueID string, at time.Time, bucket time.Duration) strin
 	if bucket <= 0 {
 		bucket = time.Minute
 	}
-	slot := at.UTC().Truncate(bucket).Format(time.RFC3339)
-	return prefix + ":" + leagueID + ":" + slot
+	slot := at.UTC().Truncate(bucket).Format("20060102T150405Z")
+	prefix = sanitizeDedupSegment(prefix)
+	leagueID = sanitizeDedupSegment(leagueID)
+	return prefix + "-" + leagueID + "-" + slot
+}
+
+func sanitizeDedupSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	return dedupUnsafeCharRegex.ReplaceAllString(value, "-")
 }
 
 func analyzeFixtures(items []fixture.Fixture, now time.Time) (bool, *time.Time) {
