@@ -6,25 +6,27 @@ import (
 )
 
 type fixtureTableModel struct {
-	ID           int64          `db:"id"`
-	PublicID     string         `db:"public_id"`
-	LeagueID     string         `db:"league_public_id"`
-	Gameweek     int            `db:"gameweek"`
-	HomeTeam     string         `db:"home_team"`
-	AwayTeam     string         `db:"away_team"`
-	FixtureRefID sql.NullInt64  `db:"external_fixture_id"`
-	HomeTeamID   sql.NullString `db:"home_team_public_id"`
-	AwayTeamID   sql.NullString `db:"away_team_public_id"`
-	KickoffAt    time.Time      `db:"kickoff_at"`
-	Venue        string         `db:"venue"`
-	HomeScore    sql.NullInt64  `db:"home_score"`
-	AwayScore    sql.NullInt64  `db:"away_score"`
-	Status       string         `db:"status"`
-	WinnerTeamID sql.NullString `db:"winner_team_public_id"`
-	FinishedAt   sql.NullTime   `db:"finished_at"`
-	CreatedAt    time.Time      `db:"created_at"`
-	UpdatedAt    time.Time      `db:"updated_at"`
-	DeletedAt    *time.Time     `db:"deleted_at"`
+	ID               int64          `db:"id"`
+	PublicID         string         `db:"public_id"`
+	LeagueID         string         `db:"league_public_id"`
+	Gameweek         int            `db:"gameweek"`
+	HomeTeam         string         `db:"home_team"`
+	AwayTeam         string         `db:"away_team"`
+	FixtureRefID     sql.NullInt64  `db:"external_fixture_id"`
+	HomeTeamID       sql.NullString `db:"home_team_public_id"`
+	AwayTeamID       sql.NullString `db:"away_team_public_id"`
+	KickoffAt        time.Time      `db:"kickoff_at"`
+	Venue            string         `db:"venue"`
+	HomeScore        sql.NullInt64  `db:"home_score"`
+	AwayScore        sql.NullInt64  `db:"away_score"`
+	Status           string         `db:"status"`
+	WinnerTeamID     sql.NullString `db:"winner_team_public_id"`
+	FinishedAt       sql.NullTime   `db:"finished_at"`
+	ExternalSource   string         `db:"external_source"`
+	ExternalMetadata []byte         `db:"external_metadata"`
+	CreatedAt        time.Time      `db:"created_at"`
+	UpdatedAt        time.Time      `db:"updated_at"`
+	DeletedAt        *time.Time     `db:"deleted_at"`
 }
 
 type fixtureInsertModel struct {
