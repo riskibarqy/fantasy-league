@@ -63,6 +63,34 @@ func (h *Handler) RunSyncScheduleJob(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(ctx, w, http.StatusOK, result)
 }
 
+func (h *Handler) RunSyncScheduleDirect(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.RunSyncScheduleDirect")
+	defer span.End()
+
+	if h.jobOrchestrator == nil {
+		writeError(ctx, w, fmt.Errorf("%w: job orchestrator is not configured", usecase.ErrDependencyUnavailable))
+		return
+	}
+
+	req, err := decodeInternalJobSyncRequest(r)
+	if err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	result, err := h.jobOrchestrator.RunScheduleSyncDirect(ctx, usecase.JobSyncInput{
+		LeagueID: req.LeagueID,
+		Force:    req.Force,
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx, "run direct sync schedule failed", "league_id", req.LeagueID, "force", req.Force, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, result)
+}
+
 func (h *Handler) RunBootstrapJob(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.RunBootstrapJob")
 	defer span.End()

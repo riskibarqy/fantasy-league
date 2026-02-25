@@ -80,4 +80,5 @@ func registerAuthorizedIngestionRoutes(mux *http.ServeMux, handler *Handler, ver
 	mux.Handle("POST /v1/internal/ingestion/fixture-events", RequireAuth(verifier, http.HandlerFunc(handler.IngestFixtureEvents)))
 	mux.Handle("POST /v1/internal/ingestion/raw-payloads", RequireAuth(verifier, http.HandlerFunc(handler.IngestRawPayloads)))
 	mux.Handle("POST /v1/internal/ingestion/standings", RequireAuth(verifier, http.HandlerFunc(handler.IngestLeagueStandings)))
+	mux.Handle("POST /v1/internal/sync/schedule", RequireAuth(verifier, http.HandlerFunc(handler.RunSyncScheduleDirect)))
 }

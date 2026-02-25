@@ -106,11 +106,15 @@ func NewJobOrchestratorService(
 }
 
 func (s *JobOrchestratorService) RunScheduleSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
-	return s.run(ctx, "schedule", input, false)
+	return s.run(ctx, "schedule", input, false, true)
 }
 
 func (s *JobOrchestratorService) RunLiveSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
-	return s.run(ctx, "live", input, true)
+	return s.run(ctx, "live", input, true, true)
+}
+
+func (s *JobOrchestratorService) RunScheduleSyncDirect(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	return s.run(ctx, "schedule-direct", input, false, false)
 }
 
 func (s *JobOrchestratorService) Bootstrap(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
@@ -137,17 +141,21 @@ func (s *JobOrchestratorService) Bootstrap(ctx context.Context, input JobSyncInp
 	return result, nil
 }
 
-func (s *JobOrchestratorService) run(ctx context.Context, mode string, input JobSyncInput, refreshScoring bool) (JobSyncResult, error) {
+func (s *JobOrchestratorService) run(ctx context.Context, mode string, input JobSyncInput, refreshScoring bool, enqueueNext bool) (JobSyncResult, error) {
 	leagues, err := s.pickLeagues(ctx, input.LeagueID)
 	if err != nil {
 		return JobSyncResult{}, err
 	}
 
 	now := s.now().UTC()
+	capacity := len(leagues) * 2
+	if !enqueueNext {
+		capacity = 0
+	}
 	result := JobSyncResult{
 		Mode:             mode,
 		LeagueCount:      len(leagues),
-		QueuedOperations: make([]string, 0, len(leagues)*2),
+		QueuedOperations: make([]string, 0, capacity),
 	}
 
 	for _, item := range leagues {
@@ -163,15 +171,18 @@ func (s *JobOrchestratorService) run(ctx context.Context, mode string, input Job
 			}
 		}
 
-		fixtures, err := s.fixtureRepo.ListByLeague(ctx, item.ID)
-		if err != nil {
-			return JobSyncResult{}, fmt.Errorf("list fixtures for league=%s: %w", item.ID, err)
-		}
-
 		if refreshScoring && s.scoringSvc != nil {
 			if err := s.scoringSvc.EnsureLeagueUpToDate(ctx, item.ID); err != nil {
 				s.logger.WarnContext(ctx, "ensure scoring up to date failed", "league_id", item.ID, "error", err)
 			}
+		}
+		if !enqueueNext {
+			continue
+		}
+
+		fixtures, err := s.fixtureRepo.ListByLeague(ctx, item.ID)
+		if err != nil {
+			return JobSyncResult{}, fmt.Errorf("list fixtures for league=%s: %w", item.ID, err)
 		}
 
 		hasLive, nearestUpcoming := analyzeFixtures(fixtures, now)
@@ -197,7 +208,8 @@ func (s *JobOrchestratorService) run(ctx context.Context, mode string, input Job
 			result.QueuedOperations = append(result.QueuedOperations, "sync-live:"+item.ID)
 		}
 
-		if err := s.enqueueSchedule(ctx, item.ID, s.cfg.ScheduleInterval, now); err != nil {
+		scheduleDelay := s.nextScheduleDelay(now, hasLive, nearestUpcoming)
+		if err := s.enqueueSchedule(ctx, item.ID, scheduleDelay, now); err != nil {
 			return JobSyncResult{}, err
 		}
 		result.QueuedCount++
@@ -360,4 +372,30 @@ func analyzeFixtures(items []fixture.Fixture, now time.Time) (bool, *time.Time) 
 	}
 
 	return hasLive, nearestUpcoming
+}
+
+func (s *JobOrchestratorService) nextScheduleDelay(now time.Time, hasLive bool, nearestUpcoming *time.Time) time.Duration {
+	minDelay := time.Minute
+	if hasLive {
+		return maxDuration(s.cfg.LiveInterval, minDelay)
+	}
+
+	if nearestUpcoming != nil {
+		liveAt := nearestUpcoming.Add(-s.cfg.PreKickoffLead)
+		delay := liveAt.Sub(now)
+		if delay <= 0 {
+			return maxDuration(s.cfg.LiveInterval, minDelay)
+		}
+		return maxDuration(delay, minDelay)
+	}
+
+	// No upcoming fixture nearby, schedule far less frequently to avoid unnecessary polling.
+	return maxDuration(s.cfg.ScheduleInterval, 6*time.Hour)
+}
+
+func maxDuration(left, right time.Duration) time.Duration {
+	if left > right {
+		return left
+	}
+	return right
 }

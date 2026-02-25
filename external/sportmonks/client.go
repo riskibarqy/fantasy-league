@@ -535,6 +535,12 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 			TeamExternalID:  participantID,
 			TeamName:        strings.TrimSpace(getString(participant, "name")),
 			Position:        position,
+			Played:          getIntAny(item, "played", "matches_played", "games_played", "matches", "games"),
+			Won:             getIntAny(item, "won", "wins"),
+			Draw:            getIntAny(item, "draw", "draws", "drawn"),
+			Lost:            getIntAny(item, "lost", "loss", "losses", "defeats"),
+			GoalsFor:        getIntAny(item, "goals_for", "goals_scored", "scored_goals", "for"),
+			GoalsAgainst:    getIntAny(item, "goals_against", "goals_conceded", "against"),
 			Points:          getInt(item, "points"),
 			GoalDifference:  getInt(item, "goal_difference"),
 			SourceUpdatedAt: parseProviderDateTime(getString(item, "updated_at")),
@@ -1410,6 +1416,16 @@ func getInt(src map[string]any, key string) int {
 	return int(getInt64(src, key))
 }
 
+func getIntAny(src map[string]any, keys ...string) int {
+	for _, key := range keys {
+		value := getInt(src, key)
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
 func getInt64(src map[string]any, key string) int64 {
 	if src == nil {
 		return 0
@@ -1433,6 +1449,35 @@ func getInt64(src map[string]any, key string) int64 {
 			return 0
 		}
 		return v
+	case map[string]any:
+		for _, nestedKey := range []string{"total", "all", "overall", "value"} {
+			if v := getInt64(typed, nestedKey); v != 0 {
+				return v
+			}
+		}
+		home := getInt64(typed, "home")
+		away := getInt64(typed, "away")
+		if home != 0 || away != 0 {
+			return home + away
+		}
+		for _, v := range typed {
+			switch candidate := v.(type) {
+			case float64:
+				return int64(candidate)
+			case float32:
+				return int64(candidate)
+			case int:
+				return int64(candidate)
+			case int64:
+				return candidate
+			case string:
+				parsed, err := strconv.ParseInt(strings.TrimSpace(candidate), 10, 64)
+				if err == nil {
+					return parsed
+				}
+			}
+		}
+		return 0
 	default:
 		return 0
 	}
