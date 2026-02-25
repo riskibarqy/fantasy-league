@@ -72,7 +72,7 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 	}
 
 	targetURL := targetBaseURL + path
-	publishURL := baseURL + "/v2/publish/" + url.QueryEscape(targetURL)
+	publishURL := baseURL + "/v2/publish/" + targetURL
 	bodyPayload := payload
 	if bodyPayload == nil {
 		bodyPayload = map[string]any{}
