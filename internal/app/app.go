@@ -80,7 +80,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	playerSvc := usecase.NewPlayerService(leagueRepo, playerRepo)
 	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
-	leagueStandingSvc := usecase.NewLeagueStandingService(leagueRepo, leagueStandingRepo)
+	leagueStandingSvc := usecase.NewLeagueStandingService(leagueRepo, leagueStandingRepo, fixtureRepo)
 	lineupSvc := usecase.NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
 	scoringSvc := usecase.NewScoringService(fixtureRepo, squadRepo, lineupRepo, playerStatsRepo, customLeagueRepo, scoringRepo)
 	dashboardSvc := usecase.NewDashboardService(leagueRepo, fixtureRepo, squadRepo, customLeagueRepo, scoringSvc)
