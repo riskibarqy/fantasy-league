@@ -99,7 +99,20 @@ func RequestTracing(next http.Handler) http.Handler {
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path
 		}),
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return shouldTraceRequest(r.URL.Path)
+		}),
 	)
+}
+
+func shouldTraceRequest(path string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(path))
+	switch normalized {
+	case "/healthz", "/health", "/livez", "/readyz":
+		return false
+	default:
+		return true
+	}
 }
 
 func CORS(allowedOrigins []string, next http.Handler) http.Handler {
