@@ -1435,7 +1435,7 @@ func mapParticipantToExternalTeam(source fixtureParticipant) usecase.ExternalTea
 }
 
 func upsertExternalTeam(items map[int64]usecase.ExternalTeam, candidate usecase.ExternalTeam) {
-	if len(items) == 0 || candidate.ExternalID <= 0 {
+	if items == nil || candidate.ExternalID <= 0 {
 		return
 	}
 	current := items[candidate.ExternalID]
@@ -1471,7 +1471,7 @@ func mapLineupToExternalPlayer(source fixtureLineupItem) usecase.ExternalPlayer 
 }
 
 func upsertExternalPlayer(items map[int64]usecase.ExternalPlayer, candidate usecase.ExternalPlayer) {
-	if len(items) == 0 || candidate.ExternalID <= 0 {
+	if items == nil || candidate.ExternalID <= 0 {
 		return
 	}
 	current := items[candidate.ExternalID]
