@@ -35,6 +35,10 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
+type fixtureIngestionWriter interface {
+	UpsertFixtures(ctx context.Context, items []fixturedomain.Fixture) error
+}
+
 func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func() error, error) {
 	db, err := sqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary))
 	if err != nil {
@@ -51,8 +55,9 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var leagueRepo leaguedomain.Repository = postgresrepo.NewLeagueRepository(db)
 	var teamRepo teamdomain.Repository = postgresrepo.NewTeamRepository(db)
 	var playerRepo playerdomain.Repository = postgresrepo.NewPlayerRepository(db)
-	fixtureWriter := postgresrepo.NewFixtureRepository(db)
-	var fixtureRepo fixturedomain.Repository = fixtureWriter
+	fixtureWriterBase := postgresrepo.NewFixtureRepository(db)
+	var fixtureWriter fixtureIngestionWriter = fixtureWriterBase
+	var fixtureRepo fixturedomain.Repository = fixtureWriterBase
 	var leagueStandingRepo leaguestandingdomain.Repository = postgresrepo.NewLeagueStandingRepository(db)
 	var lineupRepo lineupdomain.Repository = postgresrepo.NewLineupRepository(db)
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
@@ -69,7 +74,9 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		leagueRepo = cacherepo.NewLeagueRepository(leagueRepo, cacheStore)
 		teamRepo = cacherepo.NewTeamRepository(teamRepo, cacheStore)
 		playerRepo = cacherepo.NewPlayerRepository(playerRepo, cacheStore)
-		fixtureRepo = cacherepo.NewFixtureRepository(fixtureRepo, cacheStore)
+		fixtureCachedRepo := cacherepo.NewFixtureRepository(fixtureRepo, cacheStore)
+		fixtureRepo = fixtureCachedRepo
+		fixtureWriter = fixtureCachedRepo
 		lineupRepo = cacherepo.NewLineupRepository(lineupRepo, cacheStore)
 		squadRepo = cacherepo.NewSquadRepository(squadRepo, cacheStore)
 		playerStatsRepo = cacherepo.NewPlayerStatsRepository(playerStatsRepo, cacheStore)

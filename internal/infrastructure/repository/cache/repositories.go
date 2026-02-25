@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -163,6 +164,10 @@ type FixtureRepository struct {
 	cache *basecache.Store
 }
 
+type fixtureIngestionWriter interface {
+	UpsertFixtures(ctx context.Context, items []fixture.Fixture) error
+}
+
 func NewFixtureRepository(next fixture.Repository, cache *basecache.Store) *FixtureRepository {
 	return &FixtureRepository{next: next, cache: cache}
 }
@@ -199,6 +204,34 @@ func (r *FixtureRepository) GetByID(ctx context.Context, leagueID, fixtureID str
 
 	cached, _ := v.(cachedFixtureByID)
 	return cached.value, cached.exists, nil
+}
+
+func (r *FixtureRepository) UpsertFixtures(ctx context.Context, items []fixture.Fixture) error {
+	writer, ok := r.next.(fixtureIngestionWriter)
+	if !ok {
+		return fmt.Errorf("fixture repository does not support upsert fixtures")
+	}
+	if err := writer.UpsertFixtures(ctx, items); err != nil {
+		return err
+	}
+
+	leagueIDs := make(map[string]struct{})
+	for _, item := range items {
+		leagueID := strings.TrimSpace(item.LeagueID)
+		fixtureID := strings.TrimSpace(item.ID)
+		if leagueID == "" {
+			continue
+		}
+		leagueIDs[leagueID] = struct{}{}
+		if fixtureID != "" {
+			r.cache.Delete(ctx, "fixture:id:"+leagueID+":"+fixtureID)
+		}
+	}
+	for leagueID := range leagueIDs {
+		r.cache.Delete(ctx, "fixture:list:"+leagueID)
+	}
+
+	return nil
 }
 
 type cachedFixtureByID struct {

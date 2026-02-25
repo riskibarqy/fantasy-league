@@ -144,8 +144,20 @@ func NewSportDataSyncService(
 }
 
 func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.League) error {
-	if !s.cfg.Enabled || s.provider == nil || s.ingestion == nil || s.teamRepo == nil || s.playerRepo == nil {
-		return nil
+	if !s.cfg.Enabled {
+		s.logger.WarnContext(ctx, "skip schedule sync: sport data sync is disabled", "league_id", lg.ID)
+		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
+	}
+	if s.provider == nil || s.ingestion == nil || s.teamRepo == nil || s.playerRepo == nil {
+		s.logger.WarnContext(ctx,
+			"skip schedule sync: sport data provider is not fully configured",
+			"league_id", lg.ID,
+			"provider_nil", s.provider == nil,
+			"ingestion_nil", s.ingestion == nil,
+			"team_repo_nil", s.teamRepo == nil,
+			"player_repo_nil", s.playerRepo == nil,
+		)
+		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
 	}
 
 	seasonID, ok := s.cfg.SeasonIDByLeague[strings.TrimSpace(lg.ID)]
@@ -210,8 +222,20 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 }
 
 func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) error {
-	if !s.cfg.Enabled || s.provider == nil || s.ingestion == nil || s.teamRepo == nil || s.playerRepo == nil {
-		return nil
+	if !s.cfg.Enabled {
+		s.logger.WarnContext(ctx, "skip live sync: sport data sync is disabled", "league_id", lg.ID)
+		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
+	}
+	if s.provider == nil || s.ingestion == nil || s.teamRepo == nil || s.playerRepo == nil {
+		s.logger.WarnContext(ctx,
+			"skip live sync: sport data provider is not fully configured",
+			"league_id", lg.ID,
+			"provider_nil", s.provider == nil,
+			"ingestion_nil", s.ingestion == nil,
+			"team_repo_nil", s.teamRepo == nil,
+			"player_repo_nil", s.playerRepo == nil,
+		)
+		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
 	}
 
 	teamMappings, err := s.loadTeamMappings(ctx, lg.ID)
