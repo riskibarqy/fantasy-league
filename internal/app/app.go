@@ -16,6 +16,7 @@ import (
 	customleaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/customleague"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	fixturedomain "github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	jobschedulerdomain "github.com/riskibarqy/fantasy-league/internal/domain/jobscheduler"
 	leaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/league"
 	leaguestandingdomain "github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	lineupdomain "github.com/riskibarqy/fantasy-league/internal/domain/lineup"
@@ -61,6 +62,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
 	var scoringRepo scoringdomain.Repository = postgresrepo.NewScoringRepository(db)
+	var jobDispatchRepo jobschedulerdomain.Repository = postgresrepo.NewJobDispatchRepository(db)
 
 	if cfg.CacheEnabled {
 		cacheStore := basecache.NewStore(cfg.CacheTTL)
@@ -136,6 +138,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		scoringSvc,
 		sportDataSyncSvc,
 		jobQueue,
+		jobDispatchRepo,
 		usecase.JobOrchestratorConfig{
 			ScheduleInterval: cfg.JobScheduleInterval,
 			LiveInterval:     cfg.JobLiveInterval,
@@ -184,6 +187,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		ingestionSvc,
 		customLeagueSvc,
 		onboardingSvc,
+		jobDispatchRepo,
 		logger,
 	)
 	router := httpapi.NewRouter(

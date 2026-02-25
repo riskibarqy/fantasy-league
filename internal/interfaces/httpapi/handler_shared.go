@@ -13,6 +13,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/customleague"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	"github.com/riskibarqy/fantasy-league/internal/domain/jobscheduler"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
 	"github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
@@ -38,6 +39,7 @@ type Handler struct {
 	ingestionService      *usecase.IngestionService
 	customLeagueService   *usecase.CustomLeagueService
 	onboardingService     *usecase.OnboardingService
+	jobDispatchRepo       jobscheduler.Repository
 	logger                *slog.Logger
 	validator             *validator.Validate
 }
@@ -56,6 +58,7 @@ func NewHandler(
 	ingestionService *usecase.IngestionService,
 	customLeagueService *usecase.CustomLeagueService,
 	onboardingService *usecase.OnboardingService,
+	jobDispatchRepo jobscheduler.Repository,
 	logger *slog.Logger,
 ) *Handler {
 	if logger == nil {
@@ -76,6 +79,7 @@ func NewHandler(
 		ingestionService:      ingestionService,
 		customLeagueService:   customLeagueService,
 		onboardingService:     onboardingService,
+		jobDispatchRepo:       jobDispatchRepo,
 		logger:                logger,
 		validator:             validator.New(),
 	}
@@ -277,8 +281,9 @@ type lineupUpsertRequest struct {
 }
 
 type internalJobSyncRequest struct {
-	LeagueID string `json:"league_id"`
-	Force    bool   `json:"force"`
+	LeagueID   string `json:"league_id"`
+	Force      bool   `json:"force"`
+	DispatchID string `json:"dispatch_id"`
 }
 
 type getSquadRequest struct {

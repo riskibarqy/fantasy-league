@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	"github.com/riskibarqy/fantasy-league/internal/domain/jobscheduler"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type JobQueue interface {
@@ -56,6 +58,7 @@ type JobOrchestratorService struct {
 	scoringSvc   *ScoringService
 	leagueSyncer LeagueDataSyncer
 	queue        JobQueue
+	dispatchRepo jobscheduler.Repository
 	cfg          JobOrchestratorConfig
 	logger       *slog.Logger
 	now          func() time.Time
@@ -69,6 +72,7 @@ func NewJobOrchestratorService(
 	scoringSvc *ScoringService,
 	leagueSyncer LeagueDataSyncer,
 	queue JobQueue,
+	dispatchRepo jobscheduler.Repository,
 	cfg JobOrchestratorConfig,
 	logger *slog.Logger,
 ) *JobOrchestratorService {
@@ -94,6 +98,7 @@ func NewJobOrchestratorService(
 		scoringSvc:   scoringSvc,
 		leagueSyncer: leagueSyncer,
 		queue:        queue,
+		dispatchRepo: dispatchRepo,
 		cfg:          cfg,
 		logger:       logger,
 		now:          time.Now,
@@ -224,24 +229,64 @@ func (s *JobOrchestratorService) pickLeagues(ctx context.Context, leagueID strin
 }
 
 func (s *JobOrchestratorService) enqueueSchedule(ctx context.Context, leagueID string, delay time.Duration, now time.Time) error {
-	payload := map[string]any{
-		"league_id": leagueID,
-	}
 	dedupID := dedupKey("sync-schedule", leagueID, now.Add(delay), s.cfg.ScheduleInterval)
+	payload := map[string]any{
+		"league_id":   leagueID,
+		"dispatch_id": dedupID,
+	}
 	if err := s.queue.Enqueue(ctx, "/v1/internal/jobs/sync-schedule", payload, delay, dedupID); err != nil {
+		s.recordDispatchEvent(ctx, jobscheduler.DispatchEvent{
+			DispatchID:   dedupID,
+			JobName:      "sync-schedule",
+			JobPath:      "/v1/internal/jobs/sync-schedule",
+			LeagueID:     leagueID,
+			Status:       jobscheduler.StatusFailed,
+			Payload:      payload,
+			ErrorMessage: err.Error(),
+			OccurredAt:   now.UTC(),
+		})
 		return fmt.Errorf("enqueue sync-schedule league=%s: %w", leagueID, err)
 	}
+	s.recordDispatchEvent(ctx, jobscheduler.DispatchEvent{
+		DispatchID: dedupID,
+		JobName:    "sync-schedule",
+		JobPath:    "/v1/internal/jobs/sync-schedule",
+		LeagueID:   leagueID,
+		Status:     jobscheduler.StatusSent,
+		Payload:    payload,
+		OccurredAt: now.UTC(),
+	})
 	return nil
 }
 
 func (s *JobOrchestratorService) enqueueLive(ctx context.Context, leagueID string, delay time.Duration, now time.Time) error {
-	payload := map[string]any{
-		"league_id": leagueID,
-	}
 	dedupID := dedupKey("sync-live", leagueID, now.Add(delay), s.cfg.LiveInterval)
+	payload := map[string]any{
+		"league_id":   leagueID,
+		"dispatch_id": dedupID,
+	}
 	if err := s.queue.Enqueue(ctx, "/v1/internal/jobs/sync-live", payload, delay, dedupID); err != nil {
+		s.recordDispatchEvent(ctx, jobscheduler.DispatchEvent{
+			DispatchID:   dedupID,
+			JobName:      "sync-live",
+			JobPath:      "/v1/internal/jobs/sync-live",
+			LeagueID:     leagueID,
+			Status:       jobscheduler.StatusFailed,
+			Payload:      payload,
+			ErrorMessage: err.Error(),
+			OccurredAt:   now.UTC(),
+		})
 		return fmt.Errorf("enqueue sync-live league=%s: %w", leagueID, err)
 	}
+	s.recordDispatchEvent(ctx, jobscheduler.DispatchEvent{
+		DispatchID: dedupID,
+		JobName:    "sync-live",
+		JobPath:    "/v1/internal/jobs/sync-live",
+		LeagueID:   leagueID,
+		Status:     jobscheduler.StatusSent,
+		Payload:    payload,
+		OccurredAt: now.UTC(),
+	})
 	return nil
 }
 
@@ -261,6 +306,33 @@ func sanitizeDedupSegment(value string) string {
 		return "unknown"
 	}
 	return dedupUnsafeCharRegex.ReplaceAllString(value, "-")
+}
+
+func (s *JobOrchestratorService) recordDispatchEvent(ctx context.Context, event jobscheduler.DispatchEvent) {
+	if s.dispatchRepo == nil || strings.TrimSpace(event.DispatchID) == "" {
+		return
+	}
+	traceID, spanID := traceMetaFromContext(ctx)
+	event.TraceID = traceID
+	event.SpanID = spanID
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = s.now().UTC()
+	}
+	if err := s.dispatchRepo.UpsertEvent(ctx, event); err != nil {
+		s.logger.WarnContext(ctx, "record job dispatch event failed",
+			"dispatch_id", event.DispatchID,
+			"status", event.Status,
+			"error", err,
+		)
+	}
+}
+
+func traceMetaFromContext(ctx context.Context) (string, string) {
+	spanContext := trace.SpanFromContext(ctx).SpanContext()
+	if !spanContext.IsValid() {
+		return "", ""
+	}
+	return spanContext.TraceID().String(), spanContext.SpanID().String()
 }
 
 func analyzeFixtures(items []fixture.Fixture, now time.Time) (bool, *time.Time) {
