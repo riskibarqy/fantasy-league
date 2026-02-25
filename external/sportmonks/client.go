@@ -25,9 +25,12 @@ const (
 	defaultBaseURL         = "https://api.sportmonks.com/v3/football"
 	defaultIncludeFixture  = "participants;scores;venue;state;statistics.type;lineups.details.type;events.type;events.subtype"
 	defaultIncludeStanding = "participant;details.type;form"
+	fixtureDetailChunkSize = 20
+	fixtureDetailMaxIDs    = 80
 )
 
 var digitsRegex = regexp.MustCompile(`\d+`)
+var apiTokenParamRegex = regexp.MustCompile(`api_token=[^&\s"']+`)
 var errSportMonksTransient = errors.New("sportmonks transient failure")
 
 type ClientConfig struct {
@@ -133,7 +136,12 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 	}
 	sort.SliceStable(fixtureIDs, func(i, j int) bool { return fixtureIDs[i] < fixtureIDs[j] })
 
-	const chunkSize = 20
+	fixtureIDs = selectFixtureIDsForDetailHydration(byID, time.Now().UTC())
+	if len(fixtureIDs) == 0 {
+		c.logger.WarnContext(ctx, "skip fixture details hydration: no fixtures inside hydration window", "season_id", seasonID)
+	}
+
+	chunkSize := fixtureDetailChunkSize
 	for start := 0; start < len(fixtureIDs); start += chunkSize {
 		end := start + chunkSize
 		if end > len(fixtureIDs) {
@@ -154,7 +162,17 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 		var details fixturesMultiEnvelope
 		raw, err := c.doJSON(ctx, path, query, &details)
 		if err != nil {
-			return usecase.ExternalFixtureBundle{}, fmt.Errorf("fetch fixtures multi season_id=%d ids=%s: %w", seasonID, strings.Join(idValues, ","), err)
+			if ctx.Err() != nil {
+				return usecase.ExternalFixtureBundle{}, ctx.Err()
+			}
+			c.logger.WarnContext(
+				ctx,
+				"fetch fixtures multi failed, continuing with schedule-only rows",
+				"season_id", seasonID,
+				"chunk_size", len(chunk),
+				"error", err,
+			)
+			continue
 		}
 		payloads = append(payloads, buildAPIPayload(path, query, raw))
 
@@ -441,7 +459,7 @@ func (c *Client) executeRequest(ctx context.Context, fullURL string) ([]byte, er
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("%w: send request: %v", errSportMonksTransient, err)
+			lastErr = fmt.Errorf("%w: send request: %s", errSportMonksTransient, sanitizeSensitiveText(err.Error(), c.token))
 		} else {
 			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
 			_ = resp.Body.Close()
@@ -479,6 +497,18 @@ func (c *Client) executeRequest(ctx context.Context, fullURL string) ([]byte, er
 	}
 	c.logger.WarnContext(ctx, "sportmonks request failed", "url", redactAPIURL(fullURL), "error", lastErr)
 	return nil, lastErr
+}
+
+func sanitizeSensitiveText(value, token string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	if token != "" {
+		value = strings.ReplaceAll(value, token, "REDACTED")
+	}
+	value = apiTokenParamRegex.ReplaceAllString(value, "api_token=REDACTED")
+	return value
 }
 
 func parseStandings(items []map[string]any) []usecase.ExternalStanding {
@@ -534,6 +564,82 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 		return out[i].TeamExternalID < out[j].TeamExternalID
 	})
 
+	return out
+}
+
+func selectFixtureIDsForDetailHydration(fixtures map[int64]usecase.ExternalFixture, now time.Time) []int64 {
+	if len(fixtures) == 0 {
+		return nil
+	}
+
+	pastCutoff := now.Add(-14 * 24 * time.Hour)
+	futureCutoff := now.Add(30 * 24 * time.Hour)
+
+	type candidate struct {
+		id      int64
+		kickoff time.Time
+	}
+
+	past := make([]candidate, 0, len(fixtures))
+	future := make([]candidate, 0, len(fixtures))
+
+	for id, item := range fixtures {
+		if id <= 0 || item.KickoffAt.IsZero() {
+			continue
+		}
+		kickoff := item.KickoffAt.UTC()
+		if kickoff.Before(pastCutoff) || kickoff.After(futureCutoff) {
+			continue
+		}
+		row := candidate{id: id, kickoff: kickoff}
+		if kickoff.Before(now) {
+			past = append(past, row)
+		} else {
+			future = append(future, row)
+		}
+	}
+
+	sort.SliceStable(past, func(i, j int) bool {
+		if !past[i].kickoff.Equal(past[j].kickoff) {
+			return past[i].kickoff.After(past[j].kickoff)
+		}
+		return past[i].id < past[j].id
+	})
+	sort.SliceStable(future, func(i, j int) bool {
+		if !future[i].kickoff.Equal(future[j].kickoff) {
+			return future[i].kickoff.Before(future[j].kickoff)
+		}
+		return future[i].id < future[j].id
+	})
+
+	limitPast := fixtureDetailMaxIDs / 2
+	if len(past) < limitPast {
+		limitPast = len(past)
+	}
+	limitFuture := fixtureDetailMaxIDs - limitPast
+	if len(future) < limitFuture {
+		limitFuture = len(future)
+		remaining := fixtureDetailMaxIDs - limitFuture
+		if len(past) < remaining {
+			remaining = len(past)
+		}
+		limitPast = remaining
+	}
+
+	selected := make([]candidate, 0, limitPast+limitFuture)
+	selected = append(selected, past[:limitPast]...)
+	selected = append(selected, future[:limitFuture]...)
+	sort.SliceStable(selected, func(i, j int) bool {
+		if !selected[i].kickoff.Equal(selected[j].kickoff) {
+			return selected[i].kickoff.Before(selected[j].kickoff)
+		}
+		return selected[i].id < selected[j].id
+	})
+
+	out := make([]int64, 0, len(selected))
+	for _, item := range selected {
+		out = append(out, item.id)
+	}
 	return out
 }
 
