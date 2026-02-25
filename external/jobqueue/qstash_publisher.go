@@ -2,22 +2,25 @@ package jobqueue
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
+	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
+	"github.com/valyala/bytebufferpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-var errQStashTransient = errors.New("qstash transient failure")
+var errQStashTransient = crerr.New("qstash transient failure")
 
 type QStashPublisherConfig struct {
 	BaseURL          string
@@ -76,16 +79,16 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 
 	path = "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
 	if strings.TrimSpace(path) == "/" {
-		return fmt.Errorf("job path is required")
+		return crerr.New("job path is required")
 	}
 
 	baseURL, err := validateHTTPBaseURL(p.baseURL)
 	if err != nil {
-		return fmt.Errorf("invalid QSTASH_BASE_URL: %w", err)
+		return crerr.Wrap(err, "invalid QSTASH_BASE_URL")
 	}
 	targetBaseURL, err := validateHTTPBaseURL(p.targetBaseURL)
 	if err != nil {
-		return fmt.Errorf("invalid QSTASH_TARGET_BASE_URL: %w", err)
+		return crerr.Wrap(err, "invalid QSTASH_TARGET_BASE_URL")
 	}
 
 	targetURL := targetBaseURL + path
@@ -95,9 +98,9 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 		bodyPayload = map[string]any{}
 	}
 
-	body, err := jsoniter.Marshal(bodyPayload)
+	body, err := sonic.Marshal(bodyPayload)
 	if err != nil {
-		return fmt.Errorf("marshal job payload: %w", err)
+		return crerr.Wrap(err, "marshal job payload")
 	}
 	bodyText := truncateForLog(string(body), 4096)
 	curlPreview := buildQStashCurlPreview(publishURL, path, normalizeDelay(delay), p.retries, deduplicationID, bodyText, p.internalJobToken != "")
@@ -116,7 +119,7 @@ func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, publishURL, strings.NewReader(string(body)))
 	if err != nil {
-		return fmt.Errorf("create qstash request: %w", err)
+		return crerr.Wrap(err, "create qstash request")
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -189,18 +192,18 @@ func normalizeDelay(delay time.Duration) string {
 func validateHTTPBaseURL(raw string) (string, error) {
 	candidate := strings.TrimSpace(raw)
 	if candidate == "" {
-		return "", fmt.Errorf("value is empty")
+		return "", crerr.New("value is empty")
 	}
 
 	parsed, err := url.Parse(candidate)
 	if err != nil {
-		return "", fmt.Errorf("parse %q: %w", candidate, err)
+		return "", crerr.Wrapf(err, "parse %q", candidate)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("%q uses unsupported scheme=%q; expected http or https", candidate, parsed.Scheme)
+		return "", crerr.Newf("%q uses unsupported scheme=%q; expected http or https", candidate, parsed.Scheme)
 	}
 	if strings.TrimSpace(parsed.Host) == "" {
-		return "", fmt.Errorf("%q has empty host", candidate)
+		return "", crerr.Newf("%q has empty host", candidate)
 	}
 
 	return strings.TrimRight(candidate, "/"), nil
@@ -215,28 +218,45 @@ func buildQStashCurlPreview(
 	body string,
 	withForwardToken bool,
 ) string {
-	parts := []string{
-		"curl -X POST",
-		shellQuote(publishURL),
-		"-H", shellQuote("Authorization: Bearer ***"),
-		"-H", shellQuote("Content-Type: application/json"),
-		"-H", shellQuote("Upstash-Method: POST"),
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
+
+	appendPart := func(part string) {
+		if buf.Len() > 0 {
+			_ = buf.WriteByte(' ')
+		}
+		_, _ = buf.WriteString(part)
 	}
+	appendFlagHeader := func(value string) {
+		appendPart("-H")
+		appendPart(shellQuote(value))
+	}
+
+	appendPart("curl")
+	appendPart("-X")
+	appendPart("POST")
+	appendPart(shellQuote(publishURL))
+	appendFlagHeader("Authorization: Bearer ***")
+	appendFlagHeader("Content-Type: application/json")
+	appendFlagHeader("Upstash-Method: POST")
 	if retries > 0 {
-		parts = append(parts, "-H", shellQuote(fmt.Sprintf("Upstash-Retries: %d", retries)))
+		appendFlagHeader("Upstash-Retries: " + strconv.Itoa(retries))
 	}
 	if strings.TrimSpace(delay) != "" && delay != "0s" {
-		parts = append(parts, "-H", shellQuote("Upstash-Delay: "+delay))
+		appendFlagHeader("Upstash-Delay: " + delay)
 	}
 	if strings.TrimSpace(deduplicationID) != "" {
-		parts = append(parts, "-H", shellQuote("Upstash-Deduplication-Id: "+strings.TrimSpace(deduplicationID)))
+		appendFlagHeader("Upstash-Deduplication-Id: " + strings.TrimSpace(deduplicationID))
 	}
 	if withForwardToken {
-		parts = append(parts, "-H", shellQuote("Upstash-Forward-X-Internal-Job-Token: ***"))
+		appendFlagHeader("Upstash-Forward-X-Internal-Job-Token: ***")
 	}
-	parts = append(parts, "-d", shellQuote(body))
-	parts = append(parts, "#", shellQuote("path="+path))
-	return strings.Join(parts, " ")
+	appendPart("-d")
+	appendPart(shellQuote(body))
+	appendPart("#")
+	appendPart(shellQuote("path=" + path))
+
+	return buf.String()
 }
 
 func shellQuote(value string) string {
@@ -269,7 +289,7 @@ func isQStashCircuitFailure(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, errQStashTransient)
+	return stderrors.Is(err, errQStashTransient)
 }
 
 func isQStashRetryableStatus(statusCode int) bool {

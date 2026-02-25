@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -46,7 +46,7 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, status int, payload a
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = jsoniter.NewEncoder(w).Encode(payload)
+	_ = sonic.ConfigDefault.NewEncoder(w).Encode(payload)
 }
 
 func writeSuccess(ctx context.Context, w http.ResponseWriter, status int, data any) {

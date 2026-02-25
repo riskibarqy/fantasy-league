@@ -3,7 +3,6 @@ package anubis
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,13 +10,14 @@ import (
 	"strings"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
+	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/domain/user"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
-var errAnubisTransient = errors.New("anubis transient failure")
+var errAnubisTransient = crerr.New("anubis transient failure")
 
 type Client struct {
 	httpClient     *http.Client
@@ -126,7 +126,7 @@ func (c *Client) VerifyAccessToken(ctx context.Context, token string) (user.Prin
 
 func (c *Client) verifyByHTTP(ctx context.Context, token string) (user.Principal, error) {
 	payload := introspectRequest{Token: token}
-	encoded, err := jsoniter.Marshal(payload)
+	encoded, err := sonic.Marshal(payload)
 	if err != nil {
 		return user.Principal{}, fmt.Errorf("marshal introspect request: %w", err)
 	}
@@ -174,7 +174,7 @@ func (c *Client) verifyByHTTP(ctx context.Context, token string) (user.Principal
 	}
 
 	var decoded introspectResponse
-	if err := jsoniter.Unmarshal(body, &decoded); err != nil {
+	if err := sonic.Unmarshal(body, &decoded); err != nil {
 		return user.Principal{}, fmt.Errorf("%w: unmarshal introspect response: %v", errAnubisTransient, err)
 	}
 

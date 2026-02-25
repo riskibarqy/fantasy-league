@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -30,7 +30,7 @@ func TestClientVerifyAccessToken_SendsAdminKeyAndParsesResponse(t *testing.T) {
 		}
 
 		var req map[string]string
-		if err := jsoniter.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := sonic.ConfigDefault.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
 		if req["token"] != "token-abc" {
@@ -38,7 +38,7 @@ func TestClientVerifyAccessToken_SendsAdminKeyAndParsesResponse(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = jsoniter.NewEncoder(w).Encode(map[string]any{
+		_ = sonic.ConfigDefault.NewEncoder(w).Encode(map[string]any{
 			"active":      true,
 			"user_id":     "user-123",
 			"app_id":      "app-001",
@@ -79,7 +79,7 @@ func TestClientVerifyAccessToken_InactiveToken(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = jsoniter.NewEncoder(w).Encode(map[string]any{"active": false})
+		_ = sonic.ConfigDefault.NewEncoder(w).Encode(map[string]any{"active": false})
 	}))
 	defer srv.Close()
 
@@ -131,7 +131,7 @@ func TestClientVerifyAccessToken_UsesInMemoryCache(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_ = jsoniter.NewEncoder(w).Encode(map[string]any{
+		_ = sonic.ConfigDefault.NewEncoder(w).Encode(map[string]any{
 			"active":  true,
 			"user_id": "user-cache",
 		})

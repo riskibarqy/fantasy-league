@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
@@ -226,7 +226,7 @@ func (h *Handler) IngestPlayerFixtureStats(w http.ResponseWriter, r *http.Reques
 	defer span.End()
 
 	var req ingestPlayerFixtureStatsRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -303,7 +303,7 @@ func (h *Handler) IngestFixtures(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	var req ingestFixturesRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -389,7 +389,7 @@ func (h *Handler) IngestTeamFixtureStats(w http.ResponseWriter, r *http.Request)
 	defer span.End()
 
 	var req ingestTeamFixtureStatsRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -461,7 +461,7 @@ func (h *Handler) IngestFixtureEvents(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	var req ingestFixtureEventsRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -536,7 +536,7 @@ func (h *Handler) IngestRawPayloads(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 
 	var req ingestRawPayloadsRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -594,7 +594,7 @@ func (h *Handler) IngestLeagueStandings(w http.ResponseWriter, r *http.Request) 
 	defer span.End()
 
 	var req ingestLeagueStandingsRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -657,7 +657,7 @@ func marshalPayloadJSON(ctx context.Context, payload map[string]any) (string, er
 		return "", fmt.Errorf("payload is empty")
 	}
 
-	encoded, err := jsoniter.Marshal(payload)
+	encoded, err := sonic.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}

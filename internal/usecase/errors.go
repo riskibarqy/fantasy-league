@@ -1,10 +1,10 @@
 package usecase
 
-import "errors"
+import crerr "github.com/cockroachdb/errors"
 
 var (
-	ErrInvalidInput          = errors.New("invalid input")
-	ErrNotFound              = errors.New("resource not found")
-	ErrUnauthorized          = errors.New("unauthorized")
-	ErrDependencyUnavailable = errors.New("dependency unavailable")
+	ErrInvalidInput          = crerr.New("invalid input")
+	ErrNotFound              = crerr.New("resource not found")
+	ErrUnauthorized          = crerr.New("unauthorized")
+	ErrDependencyUnavailable = crerr.New("dependency unavailable")
 )

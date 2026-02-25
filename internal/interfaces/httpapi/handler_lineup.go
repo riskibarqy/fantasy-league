@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -46,7 +46,7 @@ func (h *Handler) SaveLineupByLeague(w http.ResponseWriter, r *http.Request) {
 
 	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
 	var req lineupUpsertRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))

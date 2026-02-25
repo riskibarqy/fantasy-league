@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	sonic "github.com/bytedance/sonic"
 	"github.com/jmoiron/sqlx"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	qb "github.com/riskibarqy/fantasy-league/internal/platform/querybuilder"
 )
@@ -294,7 +294,7 @@ func encodeTeamStatsJSONMap(value map[string]any) string {
 	if len(value) == 0 {
 		return "{}"
 	}
-	encoded, err := jsoniter.Marshal(value)
+	encoded, err := sonic.Marshal(value)
 	if err != nil {
 		return "{}"
 	}
@@ -307,7 +307,7 @@ func decodeTeamStatsJSONMap(raw string) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any)
-	if err := jsoniter.Unmarshal([]byte(raw), &out); err != nil {
+	if err := sonic.Unmarshal([]byte(raw), &out); err != nil {
 		return map[string]any{}
 	}
 	return out

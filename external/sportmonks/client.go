@@ -3,7 +3,7 @@ package sportmonks
 import (
 	"bytes"
 	"context"
-	"errors"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,23 +15,25 @@ import (
 	"strings"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
+	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
 const (
-	defaultBaseURL         = "https://api.sportmonks.com/v3/football"
-	defaultIncludeFixture  = "participants;scores;venue;state;statistics.type;lineups.details.type;events.type;events.subtype"
-	defaultIncludeStanding = "participant;details.type;form"
-	fixtureDetailChunkSize = 20
-	fixtureDetailMaxIDs    = 80
+	defaultBaseURL            = "https://api.sportmonks.com/v3/football"
+	defaultIncludeFixture     = "participants;scores;venue;state;statistics.type;lineups.details.type;events.type;events.subtype"
+	defaultIncludeFixtureLite = "participants;scores;venue;state"
+	defaultIncludeStanding    = "participant;details.type;form"
+	fixtureDetailChunkSize    = 20
+	fixtureDetailMaxIDs       = 80
 )
 
 var digitsRegex = regexp.MustCompile(`\d+`)
 var apiTokenParamRegex = regexp.MustCompile(`api_token=[^&\s"']+`)
-var errSportMonksTransient = errors.New("sportmonks transient failure")
+var errSportMonksTransient = crerr.New("sportmonks transient failure")
 
 type ClientConfig struct {
 	HTTPClient     *http.Client
@@ -136,11 +138,8 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 	}
 	sort.SliceStable(fixtureIDs, func(i, j int) bool { return fixtureIDs[i] < fixtureIDs[j] })
 
-	fixtureIDs = selectFixtureIDsForDetailHydration(byID, time.Now().UTC())
-	if len(fixtureIDs) == 0 {
-		c.logger.WarnContext(ctx, "skip fixture details hydration: no fixtures inside hydration window", "season_id", seasonID)
-	}
-
+	// Hydrate all season fixtures with lightweight payload so score/status history is complete.
+	// This enables deterministic head-to-head tie-breakers even for older matches.
 	chunkSize := fixtureDetailChunkSize
 	for start := 0; start < len(fixtureIDs); start += chunkSize {
 		end := start + chunkSize
@@ -149,6 +148,54 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 		}
 
 		chunk := fixtureIDs[start:end]
+		idValues := make([]string, 0, len(chunk))
+		for _, fixtureID := range chunk {
+			idValues = append(idValues, strconv.FormatInt(fixtureID, 10))
+		}
+
+		path := "/fixtures/multi/" + strings.Join(idValues, ",")
+		query := map[string]string{
+			"include": defaultIncludeFixtureLite,
+		}
+
+		var details fixturesMultiEnvelope
+		raw, err := c.doJSON(ctx, path, query, &details)
+		if err != nil {
+			if ctx.Err() != nil {
+				return usecase.ExternalFixtureBundle{}, ctx.Err()
+			}
+			c.logger.WarnContext(
+				ctx,
+				"fetch fixtures multi lite failed, continuing with schedule-only rows",
+				"season_id", seasonID,
+				"chunk_size", len(chunk),
+				"error", err,
+			)
+			continue
+		}
+		payloads = append(payloads, buildAPIPayload(path, query, raw))
+
+		for _, item := range details.Data {
+			if item.ID <= 0 {
+				continue
+			}
+			existing := byID[item.ID]
+			byID[item.ID] = hydrateFixtureCore(existing, item)
+		}
+	}
+
+	heavyFixtureIDs := selectFixtureIDsForDetailHydration(byID, time.Now().UTC())
+	if len(heavyFixtureIDs) == 0 {
+		c.logger.WarnContext(ctx, "skip fixture rich-details hydration: no fixtures inside hydration window", "season_id", seasonID)
+	}
+
+	for start := 0; start < len(heavyFixtureIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(heavyFixtureIDs) {
+			end = len(heavyFixtureIDs)
+		}
+
+		chunk := heavyFixtureIDs[start:end]
 		idValues := make([]string, 0, len(chunk))
 		for _, fixtureID := range chunk {
 			idValues = append(idValues, strconv.FormatInt(fixtureID, 10))
@@ -186,27 +233,7 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 			}
 
 			existing := byID[item.ID]
-			if existing.ExternalID == 0 {
-				existing.ExternalID = item.ID
-			}
-			if parsed := parseProviderDateTime(item.StartingAt); parsed != nil {
-				existing.KickoffAt = *parsed
-			}
-
-			homeName, awayName, homeID, awayID := resolveFixtureParticipants(item.Participants)
-			existing.HomeTeamName = firstNonEmpty(existing.HomeTeamName, homeName)
-			existing.AwayTeamName = firstNonEmpty(existing.AwayTeamName, awayName)
-			existing.HomeTeamExternalID = pickID(existing.HomeTeamExternalID, homeID)
-			existing.AwayTeamExternalID = pickID(existing.AwayTeamExternalID, awayID)
-			existing.WinnerTeamExternalID = pickID(existing.WinnerTeamExternalID, resolveWinnerTeamExternalID(item.Participants))
-			existing.Status = mapFixtureStatus(item.StateID, item.ResultInfo)
-			existing.HomeScore, existing.AwayScore = resolveFixtureScores(item.Scores, item.Participants)
-
-			if item.Venue.Set {
-				existing.Venue = strings.TrimSpace(item.Venue.Data.Name)
-			}
-			existing.FinishedAt = inferFinishedAt(existing.Status, existing.KickoffAt, item.Length)
-			byID[item.ID] = existing
+			byID[item.ID] = hydrateFixtureCore(existing, item)
 
 			for _, statItem := range item.Statistics {
 				if statItem.ParticipantID <= 0 {
@@ -441,7 +468,7 @@ func (c *Client) doJSON(ctx context.Context, path string, query map[string]strin
 		return nil, fmt.Errorf("unexpected response payload type %T", out)
 	}
 
-	if err := jsoniter.Unmarshal(raw, target); err != nil {
+	if err := sonic.Unmarshal(raw, target); err != nil {
 		return nil, fmt.Errorf("decode provider payload: %w", err)
 	}
 
@@ -583,6 +610,30 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 	return out
 }
 
+func hydrateFixtureCore(existing usecase.ExternalFixture, item fixtureDetails) usecase.ExternalFixture {
+	if existing.ExternalID == 0 {
+		existing.ExternalID = item.ID
+	}
+	if parsed := parseProviderDateTime(item.StartingAt); parsed != nil {
+		existing.KickoffAt = *parsed
+	}
+
+	homeName, awayName, homeID, awayID := resolveFixtureParticipants(item.Participants)
+	existing.HomeTeamName = firstNonEmpty(existing.HomeTeamName, homeName)
+	existing.AwayTeamName = firstNonEmpty(existing.AwayTeamName, awayName)
+	existing.HomeTeamExternalID = pickID(existing.HomeTeamExternalID, homeID)
+	existing.AwayTeamExternalID = pickID(existing.AwayTeamExternalID, awayID)
+	existing.WinnerTeamExternalID = pickID(existing.WinnerTeamExternalID, resolveWinnerTeamExternalID(item.Participants))
+	existing.Status = mapFixtureStatus(item.StateID, item.ResultInfo)
+	existing.HomeScore, existing.AwayScore = resolveFixtureScores(item.Scores, item.Participants)
+
+	if item.Venue.Set {
+		existing.Venue = strings.TrimSpace(item.Venue.Data.Name)
+	}
+	existing.FinishedAt = inferFinishedAt(existing.Status, existing.KickoffAt, item.Length)
+	return existing
+}
+
 func selectFixtureIDsForDetailHydration(fixtures map[int64]usecase.ExternalFixture, now time.Time) []int64 {
 	if len(fixtures) == 0 {
 		return nil
@@ -690,7 +741,7 @@ func parseStandingsPayload(raw []byte, direct []map[string]any) []usecase.Extern
 	}
 
 	var envelope map[string]any
-	if err := jsoniter.Unmarshal(raw, &envelope); err != nil {
+	if err := sonic.Unmarshal(raw, &envelope); err != nil {
 		return parsed
 	}
 
@@ -1640,7 +1691,7 @@ func isSportMonksCircuitFailure(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, errSportMonksTransient)
+	return stderrors.Is(err, errSportMonksTransient)
 }
 
 func isRetryableStatus(code int) bool {
@@ -1928,14 +1979,14 @@ func (r *relation[T]) UnmarshalJSON(data []byte) error {
 	var wrapped struct {
 		Data *T `json:"data"`
 	}
-	if err := jsoniter.Unmarshal(trimmed, &wrapped); err == nil && wrapped.Data != nil {
+	if err := sonic.Unmarshal(trimmed, &wrapped); err == nil && wrapped.Data != nil {
 		r.Data = *wrapped.Data
 		r.Set = true
 		return nil
 	}
 
 	var direct T
-	if err := jsoniter.Unmarshal(trimmed, &direct); err != nil {
+	if err := sonic.Unmarshal(trimmed, &direct); err != nil {
 		return err
 	}
 	r.Data = direct

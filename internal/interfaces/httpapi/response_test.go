@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -20,7 +20,7 @@ func TestWriteSuccess_GoogleEnvelope(t *testing.T) {
 	}
 
 	var body map[string]any
-	if err := jsoniter.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	if err := sonic.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response body: %v", err)
 	}
 
@@ -44,7 +44,7 @@ func TestWriteError_GoogleEnvelope(t *testing.T) {
 	}
 
 	var body map[string]any
-	if err := jsoniter.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	if err := sonic.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response body: %v", err)
 	}
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	sonic "github.com/bytedance/sonic"
 	"github.com/jmoiron/sqlx"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/riskibarqy/fantasy-league/internal/domain/jobscheduler"
 	qb "github.com/riskibarqy/fantasy-league/internal/platform/querybuilder"
 )
@@ -140,7 +140,7 @@ func marshalPayload(payload map[string]any) (string, error) {
 	if len(payload) == 0 {
 		return "{}", nil
 	}
-	raw, err := jsoniter.Marshal(payload)
+	raw, err := sonic.Marshal(payload)
 	if err != nil {
 		return "", err
 	}

@@ -37,6 +37,7 @@ type Handler struct {
 	dashboardService      *usecase.DashboardService
 	squadService          *usecase.SquadService
 	ingestionService      *usecase.IngestionService
+	sportDataSyncService  *usecase.SportDataSyncService
 	customLeagueService   *usecase.CustomLeagueService
 	onboardingService     *usecase.OnboardingService
 	jobDispatchRepo       jobscheduler.Repository
@@ -56,6 +57,7 @@ func NewHandler(
 	dashboardService *usecase.DashboardService,
 	squadService *usecase.SquadService,
 	ingestionService *usecase.IngestionService,
+	sportDataSyncService *usecase.SportDataSyncService,
 	customLeagueService *usecase.CustomLeagueService,
 	onboardingService *usecase.OnboardingService,
 	jobDispatchRepo jobscheduler.Repository,
@@ -77,6 +79,7 @@ func NewHandler(
 		dashboardService:      dashboardService,
 		squadService:          squadService,
 		ingestionService:      ingestionService,
+		sportDataSyncService:  sportDataSyncService,
 		customLeagueService:   customLeagueService,
 		onboardingService:     onboardingService,
 		jobDispatchRepo:       jobDispatchRepo,

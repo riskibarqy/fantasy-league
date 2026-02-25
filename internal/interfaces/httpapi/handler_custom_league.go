@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -20,7 +20,7 @@ func (h *Handler) CreateCustomLeague(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req createCustomLeagueRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -102,7 +102,7 @@ func (h *Handler) UpdateCustomLeague(w http.ResponseWriter, r *http.Request) {
 	groupID := strings.TrimSpace(r.PathValue("groupID"))
 
 	var req updateCustomLeagueRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -157,7 +157,7 @@ func (h *Handler) JoinCustomLeagueByInvite(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req joinCustomLeagueByInviteRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))

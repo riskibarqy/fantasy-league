@@ -3,12 +3,12 @@ package anubis
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
+	stderrors "errors"
 	"strings"
 )
 
 func isCircuitFailure(err error) bool {
-	return errors.Is(err, errAnubisTransient)
+	return stderrors.Is(err, errAnubisTransient)
 }
 
 func hashToken(token string) string {

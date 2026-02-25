@@ -11,6 +11,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
+	"github.com/sourcegraph/conc/pool"
 )
 
 const inviteCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -135,14 +136,37 @@ func (s *CustomLeagueService) ListMyGroups(ctx context.Context, userID string) (
 	}
 	if s.scorer != nil {
 		seenLeagues := make(map[string]struct{})
+		leagueIDs := make([]string, 0, len(groups))
 		for _, group := range groups {
 			if _, ok := seenLeagues[group.LeagueID]; ok {
 				continue
 			}
 			seenLeagues[group.LeagueID] = struct{}{}
-			if err := s.scorer.EnsureLeagueUpToDate(ctx, group.LeagueID); err != nil {
-				return nil, fmt.Errorf("update custom league standings for league=%s: %w", group.LeagueID, err)
-			}
+			leagueIDs = append(leagueIDs, group.LeagueID)
+		}
+
+		updatePool := pool.New().
+			WithContext(ctx).
+			WithCancelOnError().
+			WithFirstError()
+		maxWorkers := len(leagueIDs)
+		if maxWorkers > 4 {
+			maxWorkers = 4
+		}
+		if maxWorkers > 0 {
+			updatePool.WithMaxGoroutines(maxWorkers)
+		}
+		for _, leagueID := range leagueIDs {
+			leagueID := leagueID
+			updatePool.Go(func(ctx context.Context) error {
+				if err := s.scorer.EnsureLeagueUpToDate(ctx, leagueID); err != nil {
+					return fmt.Errorf("update custom league standings for league=%s: %w", leagueID, err)
+				}
+				return nil
+			})
+		}
+		if err := updatePool.Wait(); err != nil {
+			return nil, err
 		}
 	}
 

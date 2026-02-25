@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/domain/jobscheduler"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 	"go.opentelemetry.io/otel/trace"
@@ -84,6 +84,51 @@ func (h *Handler) RunSyncScheduleDirect(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		h.logger.WarnContext(ctx, "run direct sync schedule failed", "league_id", req.LeagueID, "force", req.Force, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, result)
+}
+
+func (h *Handler) RunResync(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.RunResync")
+	defer span.End()
+
+	if h.sportDataSyncService == nil {
+		writeError(ctx, w, fmt.Errorf("%w: sport data sync service is not configured", usecase.ErrDependencyUnavailable))
+		return
+	}
+
+	req, err := decodeResyncRequest(r)
+	if err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+	if strings.TrimSpace(req.LeagueID) == "" && req.SeasonID <= 0 {
+		writeError(ctx, w, fmt.Errorf("%w: league_id or season_id is required", usecase.ErrInvalidInput))
+		return
+	}
+
+	result, err := h.sportDataSyncService.Resync(ctx, usecase.ResyncInput{
+		LeagueID:   req.LeagueID,
+		SeasonID:   req.SeasonID,
+		SyncData:   req.SyncData,
+		MaxWorkers: req.MaxWorkers,
+	})
+	if err != nil {
+		h.logger.WarnContext(ctx,
+			"run resync failed",
+			"league_id", req.LeagueID,
+			"season_id", req.SeasonID,
+			"sync_data", req.SyncData,
+			"max_workers", req.MaxWorkers,
+			"error", err,
+		)
 		writeError(ctx, w, err)
 		return
 	}
@@ -182,7 +227,7 @@ func (h *Handler) RunSyncLiveJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeInternalJobSyncRequest(r *http.Request) (internalJobSyncRequest, error) {
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 
 	var req internalJobSyncRequest
@@ -191,6 +236,21 @@ func decodeInternalJobSyncRequest(r *http.Request) (internalJobSyncRequest, erro
 			return internalJobSyncRequest{}, nil
 		}
 		return internalJobSyncRequest{}, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err)
+	}
+
+	return req, nil
+}
+
+func decodeResyncRequest(r *http.Request) (resyncRequest, error) {
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+
+	var req resyncRequest
+	if err := decoder.Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return resyncRequest{}, fmt.Errorf("%w: request body is required", usecase.ErrInvalidInput)
+		}
+		return resyncRequest{}, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err)
 	}
 
 	return req, nil
@@ -253,4 +313,11 @@ func traceMetaFromContext(ctx context.Context) (string, string) {
 		return "", ""
 	}
 	return spanContext.TraceID().String(), spanContext.SpanID().String()
+}
+
+type resyncRequest struct {
+	LeagueID   string   `json:"league_id" validate:"omitempty"`
+	SeasonID   int64    `json:"season_id" validate:"omitempty,gt=0"`
+	SyncData   []string `json:"sync_data" validate:"required,min=1,dive,required"`
+	MaxWorkers int      `json:"max_workers" validate:"omitempty,gte=1,lte=2"`
 }

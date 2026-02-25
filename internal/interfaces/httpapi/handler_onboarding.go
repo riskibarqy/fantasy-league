@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	jsoniter "github.com/json-iterator/go"
+	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
 
@@ -19,7 +19,7 @@ func (h *Handler) SaveOnboardingFavoriteClub(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req onboardingFavoriteClubRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
@@ -57,7 +57,7 @@ func (h *Handler) CompleteOnboardingPickSquad(w http.ResponseWriter, r *http.Req
 	}
 
 	var req onboardingPickSquadRequest
-	decoder := jsoniter.NewDecoder(r.Body)
+	decoder := sonic.ConfigDefault.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))

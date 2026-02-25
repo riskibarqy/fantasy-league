@@ -192,6 +192,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		dashboardSvc,
 		squadSvc,
 		ingestionSvc,
+		sportDataSyncSvc,
 		customLeagueSvc,
 		onboardingSvc,
 		jobDispatchRepo,
