@@ -189,6 +189,13 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 		return fmt.Errorf("fetch standings from sport data provider season_id=%d league=%s: %w", seasonID, lg.ID, err)
 	}
 	mappedStandings := mapExternalStandingsToDomain(lg.ID, standings, teamMappings)
+	if len(standings) > 0 && len(mappedStandings) == 0 {
+		s.logger.WarnContext(ctx,
+			"season standings fetched but no rows mapped to internal teams",
+			"league_id", lg.ID,
+			"provider_count", len(standings),
+		)
+	}
 	if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, false, mappedStandings); err != nil {
 		return fmt.Errorf("replace season standings league=%s: %w", lg.ID, err)
 	}
@@ -225,6 +232,14 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 		return fmt.Errorf("fetch live standings from sport data provider league_ref_id=%d league=%s: %w", leagueRefID, lg.ID, err)
 	}
 	mappedLiveStandings := mapExternalStandingsToDomain(lg.ID, liveStandings, teamMappings)
+	if len(liveStandings) > 0 && len(mappedLiveStandings) == 0 {
+		s.logger.WarnContext(ctx,
+			"live standings fetched but no rows mapped to internal teams",
+			"league_id", lg.ID,
+			"league_ref_id", leagueRefID,
+			"provider_count", len(liveStandings),
+		)
+	}
 	if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, true, mappedLiveStandings); err != nil {
 		return fmt.Errorf("replace live standings league=%s: %w", lg.ID, err)
 	}

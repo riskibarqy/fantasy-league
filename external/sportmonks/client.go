@@ -352,7 +352,7 @@ func (c *Client) FetchStandingsBySeason(ctx context.Context, seasonID int64) ([]
 	payloads := []rawdata.Payload{
 		buildAPIPayload(path, query, raw),
 	}
-	items := parseStandings(envelope.Data)
+	items := parseStandingsPayload(raw, envelope.Data)
 	return items, payloads, nil
 }
 
@@ -375,7 +375,7 @@ func (c *Client) FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int
 	payloads := []rawdata.Payload{
 		buildAPIPayload(path, query, raw),
 	}
-	items := parseStandings(envelope.Data)
+	items := parseStandingsPayload(raw, envelope.Data)
 	return items, payloads, nil
 }
 
@@ -485,28 +485,33 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 	out := make([]usecase.ExternalStanding, 0, len(items))
 	for _, item := range items {
 		participantID := getInt64(item, "participant_id")
+		if participantID <= 0 {
+			participantID = getInt64(item, "team_id")
+		}
+		if participantID <= 0 {
+			participantID = getInt64(item, "participant")
+		}
 		participant := relationDataMap(item["participant"])
 		if participantID <= 0 {
 			participantID = getInt64(participant, "id")
 		}
 
+		position := getInt(item, "position")
+		if position <= 0 {
+			position = getInt(item, "rank")
+		}
+
 		row := usecase.ExternalStanding{
 			TeamExternalID:  participantID,
 			TeamName:        strings.TrimSpace(getString(participant, "name")),
-			Position:        getInt(item, "position"),
+			Position:        position,
 			Points:          getInt(item, "points"),
 			GoalDifference:  getInt(item, "goal_difference"),
 			SourceUpdatedAt: parseProviderDateTime(getString(item, "updated_at")),
 		}
 
-		if detailsRaw, ok := item["details"].([]any); ok {
-			for _, detailRaw := range detailsRaw {
-				detail, ok := detailRaw.(map[string]any)
-				if !ok {
-					continue
-				}
-				applyStandingDetail(&row, detail)
-			}
+		for _, detail := range extractStandingDetails(item["details"]) {
+			applyStandingDetail(&row, detail)
 		}
 
 		row.Form = parseStandingForm(item["form"])
@@ -532,6 +537,138 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 	return out
 }
 
+func extractStandingDetails(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case nil:
+		return nil
+	case []any:
+		out := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			row, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			out = append(out, row)
+		}
+		return out
+	case map[string]any:
+		if nested, ok := typed["data"]; ok {
+			return extractStandingDetails(nested)
+		}
+		return []map[string]any{typed}
+	default:
+		return nil
+	}
+}
+
+func parseStandingsPayload(raw []byte, direct []map[string]any) []usecase.ExternalStanding {
+	parsed := parseStandings(direct)
+	if len(parsed) > 0 {
+		return parsed
+	}
+
+	var envelope map[string]any
+	if err := jsoniter.Unmarshal(raw, &envelope); err != nil {
+		return parsed
+	}
+
+	rows := collectStandingRows(envelope["data"])
+	if len(rows) == 0 {
+		return parsed
+	}
+
+	return parseStandings(rows)
+}
+
+func collectStandingRows(node any) []map[string]any {
+	out := make([]map[string]any, 0, 32)
+	seen := make(map[string]struct{}, 64)
+
+	var walk func(any, int)
+	walk = func(current any, depth int) {
+		if depth > 10 || current == nil {
+			return
+		}
+
+		switch typed := current.(type) {
+		case []any:
+			for _, child := range typed {
+				walk(child, depth+1)
+			}
+		case map[string]any:
+			if isStandingRow(typed) {
+				key := standingRowDedupKey(typed)
+				if _, exists := seen[key]; !exists {
+					seen[key] = struct{}{}
+					out = append(out, typed)
+				}
+			}
+
+			// Prioritize well-known relation/container keys from provider payload.
+			for _, key := range []string{"data", "standings", "table", "rows", "items"} {
+				if child, ok := typed[key]; ok {
+					walk(child, depth+1)
+				}
+			}
+			for _, child := range typed {
+				walk(child, depth+1)
+			}
+		}
+	}
+
+	walk(node, 0)
+	return out
+}
+
+func isStandingRow(item map[string]any) bool {
+	if item == nil {
+		return false
+	}
+
+	position := getInt(item, "position")
+	if position <= 0 {
+		position = getInt(item, "rank")
+	}
+	if position <= 0 {
+		return false
+	}
+
+	participantID := getInt64(item, "participant_id")
+	if participantID <= 0 {
+		participantID = getInt64(item, "team_id")
+	}
+	if participantID <= 0 {
+		participantID = getInt64(item, "participant")
+	}
+	if participantID <= 0 {
+		participant := relationDataMap(item["participant"])
+		participantID = getInt64(participant, "id")
+	}
+
+	return participantID > 0
+}
+
+func standingRowDedupKey(item map[string]any) string {
+	participantID := getInt64(item, "participant_id")
+	if participantID <= 0 {
+		participantID = getInt64(item, "team_id")
+	}
+	if participantID <= 0 {
+		participantID = getInt64(item, "participant")
+	}
+	if participantID <= 0 {
+		participant := relationDataMap(item["participant"])
+		participantID = getInt64(participant, "id")
+	}
+
+	position := getInt(item, "position")
+	if position <= 0 {
+		position = getInt(item, "rank")
+	}
+	points := getInt(item, "points")
+	return fmt.Sprintf("%d:%d:%d", participantID, position, points)
+}
+
 func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 	if row == nil {
 		return
@@ -548,6 +685,9 @@ func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 	}
 
 	value := detail["value"]
+	if value == nil {
+		value = detail["total"]
+	}
 	numeric := extractStandingValue(value)
 
 	switch {
