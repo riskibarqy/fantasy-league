@@ -14,6 +14,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	fixturedomain "github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	leaguedomain "github.com/riskibarqy/fantasy-league/internal/domain/league"
+	leaguestandingdomain "github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	lineupdomain "github.com/riskibarqy/fantasy-league/internal/domain/lineup"
 	onboardingdomain "github.com/riskibarqy/fantasy-league/internal/domain/onboarding"
 	playerdomain "github.com/riskibarqy/fantasy-league/internal/domain/player"
@@ -22,8 +23,10 @@ import (
 	teamdomain "github.com/riskibarqy/fantasy-league/internal/domain/team"
 	teamstatsdomain "github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/infrastructure/account/anubis"
+	"github.com/riskibarqy/fantasy-league/internal/infrastructure/jobqueue"
 	cacherepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/cache"
 	postgresrepo "github.com/riskibarqy/fantasy-league/internal/infrastructure/repository/postgres"
+	"github.com/riskibarqy/fantasy-league/internal/infrastructure/sportmonks"
 	"github.com/riskibarqy/fantasy-league/internal/interfaces/httpapi"
 	basecache "github.com/riskibarqy/fantasy-league/internal/platform/cache"
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
@@ -48,6 +51,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var playerRepo playerdomain.Repository = postgresrepo.NewPlayerRepository(db)
 	fixtureWriter := postgresrepo.NewFixtureRepository(db)
 	var fixtureRepo fixturedomain.Repository = fixtureWriter
+	var leagueStandingRepo leaguestandingdomain.Repository = postgresrepo.NewLeagueStandingRepository(db)
 	var lineupRepo lineupdomain.Repository = postgresrepo.NewLineupRepository(db)
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
@@ -75,11 +79,57 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	playerSvc := usecase.NewPlayerService(leagueRepo, playerRepo)
 	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
+	leagueStandingSvc := usecase.NewLeagueStandingService(leagueRepo, leagueStandingRepo)
 	lineupSvc := usecase.NewLineupService(leagueRepo, playerRepo, lineupRepo, squadRepo)
 	scoringSvc := usecase.NewScoringService(fixtureRepo, squadRepo, lineupRepo, playerStatsRepo, customLeagueRepo, scoringRepo)
 	dashboardSvc := usecase.NewDashboardService(leagueRepo, fixtureRepo, squadRepo, customLeagueRepo, scoringSvc)
 	customLeagueSvc := usecase.NewCustomLeagueService(leagueRepo, squadRepo, customLeagueRepo, scoringSvc, idgen.NewRandomGenerator())
-	ingestionSvc := usecase.NewIngestionService(fixtureWriter, playerStatsRepo, teamStatsRepo, rawDataRepo)
+	ingestionSvc := usecase.NewIngestionService(fixtureWriter, leagueStandingRepo, playerStatsRepo, teamStatsRepo, rawDataRepo)
+	var sportDataProvider usecase.SportDataSyncProvider
+	if cfg.SportMonksEnabled {
+		sportDataProvider = sportmonks.NewClient(sportmonks.ClientConfig{
+			BaseURL:    cfg.SportMonksBaseURL,
+			Token:      cfg.SportMonksToken,
+			Timeout:    cfg.SportMonksTimeout,
+			MaxRetries: cfg.SportMonksMaxRetries,
+			Logger:     logger,
+		})
+	}
+	sportDataSyncSvc := usecase.NewSportDataSyncService(
+		sportDataProvider,
+		teamRepo,
+		playerRepo,
+		ingestionSvc,
+		usecase.SportDataSyncConfig{
+			Enabled:          cfg.SportMonksEnabled,
+			SeasonIDByLeague: cfg.SportMonksSeasonIDByLeague,
+			LeagueIDByLeague: cfg.SportMonksLeagueIDByLeague,
+		},
+		logger,
+	)
+	jobQueue := usecase.NewNoopJobQueue()
+	if cfg.QStashEnabled {
+		jobQueue = jobqueue.NewQStashPublisher(jobqueue.QStashPublisherConfig{
+			BaseURL:          cfg.QStashBaseURL,
+			Token:            cfg.QStashToken,
+			TargetBaseURL:    cfg.QStashTargetBaseURL,
+			Retries:          cfg.QStashRetries,
+			InternalJobToken: cfg.InternalJobToken,
+		}, logger)
+	}
+	jobOrchestrator := usecase.NewJobOrchestratorService(
+		leagueRepo,
+		fixtureRepo,
+		scoringSvc,
+		sportDataSyncSvc,
+		jobQueue,
+		usecase.JobOrchestratorConfig{
+			ScheduleInterval: cfg.JobScheduleInterval,
+			LiveInterval:     cfg.JobLiveInterval,
+			PreKickoffLead:   cfg.JobPreKickoffLead,
+		},
+		logger,
+	)
 	squadSvc := usecase.NewSquadService(
 		leagueRepo,
 		playerRepo,
@@ -107,8 +157,23 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		logger,
 	)
 
-	handler := httpapi.NewHandler(leagueSvc, teamSvc, playerSvc, playerStatsSvc, fixtureSvc, lineupSvc, dashboardSvc, squadSvc, ingestionSvc, customLeagueSvc, onboardingSvc, logger)
-	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins)
+	handler := httpapi.NewHandler(
+		leagueSvc,
+		teamSvc,
+		playerSvc,
+		playerStatsSvc,
+		fixtureSvc,
+		leagueStandingSvc,
+		jobOrchestrator,
+		lineupSvc,
+		dashboardSvc,
+		squadSvc,
+		ingestionSvc,
+		customLeagueSvc,
+		onboardingSvc,
+		logger,
+	)
+	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins, cfg.InternalJobToken)
 
 	return router, db.Close, nil
 }

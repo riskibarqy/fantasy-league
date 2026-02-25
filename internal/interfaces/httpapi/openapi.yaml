@@ -91,6 +91,26 @@ paths:
           $ref: '#/components/responses/GoogleSuccess'
         default:
           $ref: '#/components/responses/GoogleError'
+  /v1/leagues/{leagueID}/standings:
+    get:
+      summary: List official standings by league
+      parameters:
+        - $ref: '#/components/parameters/LeagueID'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/leagues/{leagueID}/standings/live:
+    get:
+      summary: List live standings by league
+      parameters:
+        - $ref: '#/components/parameters/LeagueID'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
   /v1/leagues/{leagueID}/fixtures/{fixtureID}:
     get:
       summary: Get fixture details by league and fixture
@@ -281,6 +301,64 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/IngestRawPayloadsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/internal/ingestion/standings:
+    post:
+      summary: Ingest league standings (live or final)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestLeagueStandingsRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/internal/jobs/sync-schedule:
+    post:
+      summary: Run schedule sync orchestrator job
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalJobSyncRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/internal/jobs/bootstrap:
+    post:
+      summary: Queue initial schedule-sync jobs to QStash
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalJobSyncRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/internal/jobs/sync-live:
+    post:
+      summary: Run live sync orchestrator job
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalJobSyncRequest'
       responses:
         '200':
           $ref: '#/components/responses/GoogleSuccess'
@@ -946,3 +1024,55 @@ components:
         - entity_type
         - entity_key
         - payload
+    IngestLeagueStandingsRequest:
+      type: object
+      properties:
+        league_id:
+          type: string
+        is_live:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IngestLeagueStandingRecord'
+      required:
+        - league_id
+        - items
+    IngestLeagueStandingRecord:
+      type: object
+      properties:
+        team_id:
+          type: string
+        position:
+          type: integer
+        played:
+          type: integer
+        won:
+          type: integer
+        draw:
+          type: integer
+        lost:
+          type: integer
+        goals_for:
+          type: integer
+        goals_against:
+          type: integer
+        goal_difference:
+          type: integer
+        points:
+          type: integer
+        form:
+          type: string
+        source_updated_at:
+          type: string
+          format: date-time
+      required:
+        - team_id
+        - position
+    InternalJobSyncRequest:
+      type: object
+      properties:
+        league_id:
+          type: string
+        force:
+          type: boolean

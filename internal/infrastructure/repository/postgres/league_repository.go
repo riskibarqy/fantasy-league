@@ -39,6 +39,7 @@ func (r *LeagueRepository) List(ctx context.Context) ([]league.League, error) {
 			CountryCode: row.CountryCode,
 			Season:      row.Season,
 			IsDefault:   row.IsDefault,
+			LeagueRefID: nullInt64ToInt64(row.LeagueRefID),
 		})
 	}
 
@@ -70,5 +71,6 @@ func (r *LeagueRepository) GetByID(ctx context.Context, leagueID string) (league
 		CountryCode: row.CountryCode,
 		Season:      row.Season,
 		IsDefault:   row.IsDefault,
+		LeagueRefID: nullInt64ToInt64(row.LeagueRefID),
 	}, true, nil
 }

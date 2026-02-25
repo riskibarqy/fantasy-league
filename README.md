@@ -197,6 +197,20 @@ make fly-migrate-up
 make fly-migrate-version
 ```
 
+5. Bootstrap QStash-driven cron chain (one-time or when needed):
+
+```bash
+export INTERNAL_JOB_TOKEN='...'
+APP_BASE_URL='https://fantasy-league.fly.dev' make jobs-bootstrap
+```
+
+Optional single-league bootstrap:
+
+```bash
+export INTERNAL_JOB_TOKEN='...'
+APP_BASE_URL='https://fantasy-league.fly.dev' make jobs-bootstrap league_id=idn-liga-1-2025
+```
+
 The Fly image includes:
 
 - `/app/fantasy-league` (API)
@@ -257,6 +271,22 @@ Configured files:
 - `APP_LOG_LEVEL` (default `info`)
 - `CACHE_ENABLED` (default `true`)
 - `CACHE_TTL` (default `60s`)
+- `SPORTMONKS_ENABLED` (default `false`; when true, internal jobs fetch fixtures/standings from SportMonks)
+- `SPORTMONKS_BASE_URL` (default `https://api.sportmonks.com/v3/football`)
+- `SPORTMONKS_TOKEN` (required when `SPORTMONKS_ENABLED=true`)
+- `SPORTMONKS_TIMEOUT` (default `20s`)
+- `SPORTMONKS_MAX_RETRIES` (default `1`)
+- `SPORTMONKS_SEASON_ID_MAP` (`league_public_id:season_id`, comma-separated, required when enabled)
+- `SPORTMONKS_LEAGUE_ID_MAP` (`league_public_id:league_id`, optional fallback for live standings)
+- `INTERNAL_JOB_TOKEN` (required for internal job endpoints; required when `QSTASH_ENABLED=true`)
+- `JOB_SCHEDULE_INTERVAL` (default `15m`)
+- `JOB_LIVE_INTERVAL` (default `5m`)
+- `JOB_PRE_KICKOFF_LEAD` (default `15m`)
+- `QSTASH_ENABLED` (default `false`)
+- `QSTASH_BASE_URL` (default `https://qstash.upstash.io`)
+- `QSTASH_TOKEN` (required when `QSTASH_ENABLED=true`)
+- `QSTASH_TARGET_BASE_URL` (required when `QSTASH_ENABLED=true`, e.g. `https://fantasy-league.fly.dev`)
+- `QSTASH_RETRIES` (default `3`)
 
 ## API Endpoints
 

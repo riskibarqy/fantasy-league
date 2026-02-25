@@ -32,27 +32,36 @@ type MatchHistory struct {
 }
 
 type FixtureEvent struct {
-	EventID        int64
-	FixtureID      string
-	TeamID         string
-	PlayerID       string
-	AssistPlayerID string
-	EventType      string
-	Detail         string
-	Minute         int
-	ExtraMinute    int
+	EventID                int64
+	FixtureID              string
+	FixtureExternalID      int64
+	TeamID                 string
+	TeamExternalID         int64
+	PlayerID               string
+	PlayerExternalID       int64
+	AssistPlayerID         string
+	AssistPlayerExternalID int64
+	EventType              string
+	Detail                 string
+	Minute                 int
+	ExtraMinute            int
+	Metadata               map[string]any
 }
 
 type FixtureStat struct {
-	FixtureID     string
-	PlayerID      string
-	TeamID        string
-	MinutesPlayed int
-	Goals         int
-	Assists       int
-	CleanSheet    bool
-	YellowCards   int
-	RedCards      int
-	Saves         int
-	FantasyPoints int
+	FixtureID         string
+	FixtureExternalID int64
+	PlayerID          string
+	PlayerExternalID  int64
+	TeamID            string
+	TeamExternalID    int64
+	MinutesPlayed     int
+	Goals             int
+	Assists           int
+	CleanSheet        bool
+	YellowCards       int
+	RedCards          int
+	Saves             int
+	FantasyPoints     int
+	AdvancedStats     map[string]any
 }

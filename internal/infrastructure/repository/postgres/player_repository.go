@@ -22,7 +22,7 @@ var playerSelectColumns = []string{
 	"position",
 	"price",
 	"is_active",
-	"player_id::text AS player_id",
+	"external_player_id",
 	"image_url",
 	"created_at",
 	"updated_at",
@@ -60,7 +60,7 @@ func (r *PlayerRepository) ListByLeague(ctx context.Context, leagueID string) ([
 			Position:    player.Position(row.Position),
 			Price:       row.Price,
 			ImageURL:    row.ImageURL,
-			PlayerRefID: nullStringToInt64(row.PlayerRefID),
+			PlayerRefID: nullInt64ToInt64(row.PlayerRefID),
 		})
 	}
 
@@ -99,7 +99,7 @@ func (r *PlayerRepository) GetByIDs(ctx context.Context, leagueID string, player
 			Position:    player.Position(row.Position),
 			Price:       row.Price,
 			ImageURL:    row.ImageURL,
-			PlayerRefID: nullStringToInt64(row.PlayerRefID),
+			PlayerRefID: nullInt64ToInt64(row.PlayerRefID),
 		})
 	}
 

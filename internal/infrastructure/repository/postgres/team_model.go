@@ -11,7 +11,7 @@ type teamTableModel struct {
 	LeagueID       string         `db:"league_public_id"`
 	Name           string         `db:"name"`
 	Short          string         `db:"short"`
-	TeamRefID      sql.NullInt64  `db:"team_id"`
+	TeamRefID      sql.NullInt64  `db:"external_team_id"`
 	ImageURL       string         `db:"image_url"`
 	PrimaryColor   sql.NullString `db:"primary_color"`
 	SecondaryColor sql.NullString `db:"secondary_color"`

@@ -14,6 +14,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
 	"github.com/riskibarqy/fantasy-league/internal/domain/league"
+	"github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/lineup"
 	"github.com/riskibarqy/fantasy-league/internal/domain/onboarding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
@@ -24,19 +25,21 @@ import (
 )
 
 type Handler struct {
-	leagueService       *usecase.LeagueService
-	teamService         *usecase.TeamService
-	playerService       *usecase.PlayerService
-	playerStatsService  *usecase.PlayerStatsService
-	fixtureService      *usecase.FixtureService
-	lineupService       *usecase.LineupService
-	dashboardService    *usecase.DashboardService
-	squadService        *usecase.SquadService
-	ingestionService    *usecase.IngestionService
-	customLeagueService *usecase.CustomLeagueService
-	onboardingService   *usecase.OnboardingService
-	logger              *slog.Logger
-	validator           *validator.Validate
+	leagueService         *usecase.LeagueService
+	teamService           *usecase.TeamService
+	playerService         *usecase.PlayerService
+	playerStatsService    *usecase.PlayerStatsService
+	fixtureService        *usecase.FixtureService
+	leagueStandingService *usecase.LeagueStandingService
+	jobOrchestrator       *usecase.JobOrchestratorService
+	lineupService         *usecase.LineupService
+	dashboardService      *usecase.DashboardService
+	squadService          *usecase.SquadService
+	ingestionService      *usecase.IngestionService
+	customLeagueService   *usecase.CustomLeagueService
+	onboardingService     *usecase.OnboardingService
+	logger                *slog.Logger
+	validator             *validator.Validate
 }
 
 func NewHandler(
@@ -45,6 +48,8 @@ func NewHandler(
 	playerService *usecase.PlayerService,
 	playerStatsService *usecase.PlayerStatsService,
 	fixtureService *usecase.FixtureService,
+	leagueStandingService *usecase.LeagueStandingService,
+	jobOrchestrator *usecase.JobOrchestratorService,
 	lineupService *usecase.LineupService,
 	dashboardService *usecase.DashboardService,
 	squadService *usecase.SquadService,
@@ -58,19 +63,21 @@ func NewHandler(
 	}
 
 	return &Handler{
-		leagueService:       leagueService,
-		teamService:         teamService,
-		playerService:       playerService,
-		playerStatsService:  playerStatsService,
-		fixtureService:      fixtureService,
-		lineupService:       lineupService,
-		dashboardService:    dashboardService,
-		squadService:        squadService,
-		ingestionService:    ingestionService,
-		customLeagueService: customLeagueService,
-		onboardingService:   onboardingService,
-		logger:              logger,
-		validator:           validator.New(),
+		leagueService:         leagueService,
+		teamService:           teamService,
+		playerService:         playerService,
+		playerStatsService:    playerStatsService,
+		fixtureService:        fixtureService,
+		leagueStandingService: leagueStandingService,
+		jobOrchestrator:       jobOrchestrator,
+		lineupService:         lineupService,
+		dashboardService:      dashboardService,
+		squadService:          squadService,
+		ingestionService:      ingestionService,
+		customLeagueService:   customLeagueService,
+		onboardingService:     onboardingService,
+		logger:                logger,
+		validator:             validator.New(),
 	}
 }
 func (h *Handler) validateRequest(ctx context.Context, payload any) error {
@@ -149,17 +156,21 @@ type ingestFixtureRecord struct {
 }
 
 type ingestPlayerFixtureStatRecord struct {
-	PlayerID      string         `json:"player_id" validate:"required"`
-	TeamID        string         `json:"team_id" validate:"required"`
-	MinutesPlayed int            `json:"minutes_played"`
-	Goals         int            `json:"goals"`
-	Assists       int            `json:"assists"`
-	CleanSheet    bool           `json:"clean_sheet"`
-	YellowCards   int            `json:"yellow_cards"`
-	RedCards      int            `json:"red_cards"`
-	Saves         int            `json:"saves"`
-	FantasyPoints int            `json:"fantasy_points"`
-	Payload       map[string]any `json:"payload,omitempty"`
+	PlayerID          string         `json:"player_id"`
+	ExternalPlayerID  int64          `json:"external_player_id"`
+	TeamID            string         `json:"team_id"`
+	ExternalTeamID    int64          `json:"external_team_id"`
+	ExternalFixtureID int64          `json:"external_fixture_id"`
+	MinutesPlayed     int            `json:"minutes_played"`
+	Goals             int            `json:"goals"`
+	Assists           int            `json:"assists"`
+	CleanSheet        bool           `json:"clean_sheet"`
+	YellowCards       int            `json:"yellow_cards"`
+	RedCards          int            `json:"red_cards"`
+	Saves             int            `json:"saves"`
+	FantasyPoints     int            `json:"fantasy_points"`
+	AdvancedStats     map[string]any `json:"advanced_stats,omitempty"`
+	Payload           map[string]any `json:"payload,omitempty"`
 }
 
 type ingestTeamFixtureStatsRequest struct {
@@ -168,14 +179,17 @@ type ingestTeamFixtureStatsRequest struct {
 }
 
 type ingestTeamFixtureStatRecord struct {
-	TeamID        string         `json:"team_id" validate:"required"`
-	PossessionPct float64        `json:"possession_pct"`
-	Shots         int            `json:"shots"`
-	ShotsOnTarget int            `json:"shots_on_target"`
-	Corners       int            `json:"corners"`
-	Fouls         int            `json:"fouls"`
-	Offsides      int            `json:"offsides"`
-	Payload       map[string]any `json:"payload,omitempty"`
+	TeamID            string         `json:"team_id"`
+	ExternalTeamID    int64          `json:"external_team_id"`
+	ExternalFixtureID int64          `json:"external_fixture_id"`
+	PossessionPct     float64        `json:"possession_pct"`
+	Shots             int            `json:"shots"`
+	ShotsOnTarget     int            `json:"shots_on_target"`
+	Corners           int            `json:"corners"`
+	Fouls             int            `json:"fouls"`
+	Offsides          int            `json:"offsides"`
+	AdvancedStats     map[string]any `json:"advanced_stats,omitempty"`
+	Payload           map[string]any `json:"payload,omitempty"`
 }
 
 type ingestFixtureEventsRequest struct {
@@ -184,20 +198,46 @@ type ingestFixtureEventsRequest struct {
 }
 
 type ingestFixtureEventRecord struct {
-	EventID        int64          `json:"event_id"`
-	TeamID         string         `json:"team_id"`
-	PlayerID       string         `json:"player_id"`
-	AssistPlayerID string         `json:"assist_player_id"`
-	EventType      string         `json:"event_type" validate:"required"`
-	Detail         string         `json:"detail"`
-	Minute         int            `json:"minute"`
-	ExtraMinute    int            `json:"extra_minute"`
-	Payload        map[string]any `json:"payload,omitempty"`
+	EventID                int64          `json:"event_id"`
+	TeamID                 string         `json:"team_id"`
+	ExternalTeamID         int64          `json:"external_team_id"`
+	PlayerID               string         `json:"player_id"`
+	ExternalPlayerID       int64          `json:"external_player_id"`
+	AssistPlayerID         string         `json:"assist_player_id"`
+	ExternalAssistPlayerID int64          `json:"external_assist_player_id"`
+	ExternalFixtureID      int64          `json:"external_fixture_id"`
+	EventType              string         `json:"event_type" validate:"required"`
+	Detail                 string         `json:"detail"`
+	Minute                 int            `json:"minute"`
+	ExtraMinute            int            `json:"extra_minute"`
+	Metadata               map[string]any `json:"metadata,omitempty"`
+	Payload                map[string]any `json:"payload,omitempty"`
 }
 
 type ingestRawPayloadsRequest struct {
 	Source  string                   `json:"source" validate:"omitempty,max=40"`
 	Records []ingestRawPayloadRecord `json:"records" validate:"required,dive"`
+}
+
+type ingestLeagueStandingsRequest struct {
+	LeagueID string                       `json:"league_id" validate:"required"`
+	IsLive   bool                         `json:"is_live"`
+	Items    []ingestLeagueStandingRecord `json:"items" validate:"required,min=1,dive"`
+}
+
+type ingestLeagueStandingRecord struct {
+	TeamID          string `json:"team_id" validate:"required"`
+	Position        int    `json:"position" validate:"required,gt=0"`
+	Played          int    `json:"played" validate:"gte=0"`
+	Won             int    `json:"won" validate:"gte=0"`
+	Draw            int    `json:"draw" validate:"gte=0"`
+	Lost            int    `json:"lost" validate:"gte=0"`
+	GoalsFor        int    `json:"goals_for" validate:"gte=0"`
+	GoalsAgainst    int    `json:"goals_against" validate:"gte=0"`
+	GoalDifference  int    `json:"goal_difference"`
+	Points          int    `json:"points" validate:"gte=0"`
+	Form            string `json:"form" validate:"max=64"`
+	SourceUpdatedAt string `json:"source_updated_at"`
 }
 
 type ingestRawPayloadRecord struct {
@@ -234,6 +274,11 @@ type lineupUpsertRequest struct {
 	CaptainID     string   `json:"captainId" validate:"required"`
 	ViceCaptainID string   `json:"viceCaptainId" validate:"required"`
 	UpdatedAt     string   `json:"updatedAt"`
+}
+
+type internalJobSyncRequest struct {
+	LeagueID string `json:"league_id"`
+	Force    bool   `json:"force"`
 }
 
 type getSquadRequest struct {
@@ -346,41 +391,51 @@ type fixtureDTO struct {
 }
 
 type fixtureEventDTO struct {
-	EventID        int64  `json:"eventId"`
-	FixtureID      string `json:"fixtureId"`
-	TeamID         string `json:"teamId,omitempty"`
-	PlayerID       string `json:"playerId,omitempty"`
-	AssistPlayerID string `json:"assistPlayerId,omitempty"`
-	EventType      string `json:"eventType"`
-	Detail         string `json:"detail,omitempty"`
-	Minute         int    `json:"minute"`
-	ExtraMinute    int    `json:"extraMinute"`
+	EventID                int64          `json:"eventId"`
+	FixtureID              string         `json:"fixtureId"`
+	FixtureExternalID      int64          `json:"fixtureExternalId,omitempty"`
+	TeamID                 string         `json:"teamId,omitempty"`
+	TeamExternalID         int64          `json:"teamExternalId,omitempty"`
+	PlayerID               string         `json:"playerId,omitempty"`
+	PlayerExternalID       int64          `json:"playerExternalId,omitempty"`
+	AssistPlayerID         string         `json:"assistPlayerId,omitempty"`
+	AssistPlayerExternalID int64          `json:"assistPlayerExternalId,omitempty"`
+	EventType              string         `json:"eventType"`
+	Detail                 string         `json:"detail,omitempty"`
+	Minute                 int            `json:"minute"`
+	ExtraMinute            int            `json:"extraMinute"`
+	Metadata               map[string]any `json:"metadata,omitempty"`
 }
 
 type fixtureTeamStatsDTO struct {
-	TeamID        string  `json:"teamId"`
-	TeamName      string  `json:"teamName,omitempty"`
-	PossessionPct float64 `json:"possessionPct"`
-	Shots         int     `json:"shots"`
-	ShotsOnTarget int     `json:"shotsOnTarget"`
-	Corners       int     `json:"corners"`
-	Fouls         int     `json:"fouls"`
-	Offsides      int     `json:"offsides"`
+	TeamID         string         `json:"teamId"`
+	TeamExternalID int64          `json:"teamExternalId,omitempty"`
+	TeamName       string         `json:"teamName,omitempty"`
+	PossessionPct  float64        `json:"possessionPct"`
+	Shots          int            `json:"shots"`
+	ShotsOnTarget  int            `json:"shotsOnTarget"`
+	Corners        int            `json:"corners"`
+	Fouls          int            `json:"fouls"`
+	Offsides       int            `json:"offsides"`
+	AdvancedStats  map[string]any `json:"advancedStats,omitempty"`
 }
 
 type fixturePlayerStatsDTO struct {
-	PlayerID      string `json:"playerId"`
-	PlayerName    string `json:"playerName,omitempty"`
-	TeamID        string `json:"teamId"`
-	TeamName      string `json:"teamName,omitempty"`
-	MinutesPlayed int    `json:"minutesPlayed"`
-	Goals         int    `json:"goals"`
-	Assists       int    `json:"assists"`
-	CleanSheet    bool   `json:"cleanSheet"`
-	YellowCards   int    `json:"yellowCards"`
-	RedCards      int    `json:"redCards"`
-	Saves         int    `json:"saves"`
-	FantasyPoints int    `json:"fantasyPoints"`
+	PlayerID         string         `json:"playerId"`
+	PlayerExternalID int64          `json:"playerExternalId,omitempty"`
+	PlayerName       string         `json:"playerName,omitempty"`
+	TeamID           string         `json:"teamId"`
+	TeamExternalID   int64          `json:"teamExternalId,omitempty"`
+	TeamName         string         `json:"teamName,omitempty"`
+	MinutesPlayed    int            `json:"minutesPlayed"`
+	Goals            int            `json:"goals"`
+	Assists          int            `json:"assists"`
+	CleanSheet       bool           `json:"cleanSheet"`
+	YellowCards      int            `json:"yellowCards"`
+	RedCards         int            `json:"redCards"`
+	Saves            int            `json:"saves"`
+	FantasyPoints    int            `json:"fantasyPoints"`
+	AdvancedStats    map[string]any `json:"advancedStats,omitempty"`
 }
 
 type fixtureDetailsDTO struct {
@@ -388,6 +443,24 @@ type fixtureDetailsDTO struct {
 	TeamStats   []fixtureTeamStatsDTO   `json:"teamStats"`
 	PlayerStats []fixturePlayerStatsDTO `json:"playerStats"`
 	Events      []fixtureEventDTO       `json:"events"`
+}
+
+type leagueStandingDTO struct {
+	LeagueID       string `json:"league_id"`
+	TeamID         string `json:"team_id"`
+	TeamName       string `json:"team_name,omitempty"`
+	TeamLogoURL    string `json:"team_logo_url,omitempty"`
+	Position       int    `json:"position"`
+	Played         int    `json:"played"`
+	Won            int    `json:"won"`
+	Draw           int    `json:"draw"`
+	Lost           int    `json:"lost"`
+	GoalsFor       int    `json:"goals_for"`
+	GoalsAgainst   int    `json:"goals_against"`
+	GoalDifference int    `json:"goal_difference"`
+	Points         int    `json:"points"`
+	Form           string `json:"form"`
+	IsLive         bool   `json:"is_live"`
 }
 
 type playerDetailDTO struct {
@@ -552,6 +625,34 @@ func teamSeasonStatsToDTO(ctx context.Context, stats teamstats.SeasonStats) team
 		TotalCorners:         stats.TotalCorners,
 		TotalFouls:           stats.TotalFouls,
 		TotalOffsides:        stats.TotalOffsides,
+	}
+}
+
+func leagueStandingToDTO(
+	ctx context.Context,
+	item leaguestanding.Standing,
+	teamName string,
+	teamLogoURL string,
+) leagueStandingDTO {
+	ctx, span := startSpan(ctx, "httpapi.leagueStandingToDTO")
+	defer span.End()
+
+	return leagueStandingDTO{
+		LeagueID:       item.LeagueID,
+		TeamID:         item.TeamID,
+		TeamName:       strings.TrimSpace(teamName),
+		TeamLogoURL:    strings.TrimSpace(teamLogoURL),
+		Position:       item.Position,
+		Played:         item.Played,
+		Won:            item.Won,
+		Draw:           item.Draw,
+		Lost:           item.Lost,
+		GoalsFor:       item.GoalsFor,
+		GoalsAgainst:   item.GoalsAgainst,
+		GoalDifference: item.GoalDifference,
+		Points:         item.Points,
+		Form:           strings.TrimSpace(item.Form),
+		IsLive:         item.IsLive,
 	}
 }
 

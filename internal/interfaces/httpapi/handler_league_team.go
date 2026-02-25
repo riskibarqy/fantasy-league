@@ -118,3 +118,44 @@ func (h *Handler) GetTeamStatsByLeague(w http.ResponseWriter, r *http.Request) {
 
 	writeSuccess(ctx, w, http.StatusOK, teamSeasonStatsToDTO(ctx, stats))
 }
+
+func (h *Handler) ListLeagueStandings(w http.ResponseWriter, r *http.Request) {
+	h.listLeagueStandings(w, r, false)
+}
+
+func (h *Handler) ListLiveLeagueStandings(w http.ResponseWriter, r *http.Request) {
+	h.listLeagueStandings(w, r, true)
+}
+
+func (h *Handler) listLeagueStandings(w http.ResponseWriter, r *http.Request, live bool) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.listLeagueStandings")
+	defer span.End()
+
+	leagueID := strings.TrimSpace(r.PathValue("leagueID"))
+	items, err := h.leagueStandingService.ListByLeague(ctx, leagueID, live)
+	if err != nil {
+		h.logger.WarnContext(ctx, "list league standings failed", "league_id", leagueID, "live", live, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	teams, err := h.leagueService.ListTeamsByLeague(ctx, leagueID)
+	if err != nil {
+		h.logger.WarnContext(ctx, "list teams failed while mapping league standings", "league_id", leagueID, "live", live, "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+	teamNameByID := make(map[string]string, len(teams))
+	teamLogoByID := make(map[string]string, len(teams))
+	for _, item := range teams {
+		teamNameByID[item.ID] = item.Name
+		teamLogoByID[item.ID] = teamLogoWithFallback(ctx, item.Name, item.ImageURL)
+	}
+
+	out := make([]leagueStandingDTO, 0, len(items))
+	for _, item := range items {
+		out = append(out, leagueStandingToDTO(ctx, item, teamNameByID[item.TeamID], teamLogoByID[item.TeamID]))
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, out)
+}

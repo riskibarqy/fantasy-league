@@ -46,6 +46,27 @@ func RequireAuth(verifier TokenVerifier, next http.Handler) http.Handler {
 	})
 }
 
+func RequireInternalJobToken(token string, next http.Handler) http.Handler {
+	expectedToken := strings.TrimSpace(token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := startSpan(r.Context(), "httpapi.RequireInternalJobToken")
+		defer span.End()
+
+		if expectedToken == "" {
+			writeError(ctx, w, fmt.Errorf("%w: internal job token is not configured", usecase.ErrDependencyUnavailable))
+			return
+		}
+
+		providedToken := strings.TrimSpace(r.Header.Get("X-Internal-Job-Token"))
+		if providedToken == "" || providedToken != expectedToken {
+			writeError(ctx, w, fmt.Errorf("%w: invalid internal job token", usecase.ErrUnauthorized))
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func RequestLogging(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := startSpan(r.Context(), "httpapi.RequestLogging")

@@ -9,6 +9,7 @@ type League struct {
 	CountryCode string
 	Season      string
 	IsDefault   bool
+	LeagueRefID int64
 }
 
 func (l League) Validate() error {

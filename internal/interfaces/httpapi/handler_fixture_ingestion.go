@@ -9,6 +9,7 @@ import (
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	"github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
@@ -68,9 +69,13 @@ func (h *Handler) GetFixtureDetailsByLeague(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	teamNameByID := make(map[string]string, len(teams))
+	teamNameByRefID := make(map[int64]string, len(teams))
 	teamLogoByID := make(map[string]string, len(teams))
 	for _, t := range teams {
 		teamNameByID[t.ID] = t.Name
+		if t.TeamRefID > 0 {
+			teamNameByRefID[t.TeamRefID] = t.Name
+		}
 		teamLogoByID[t.ID] = teamLogoWithFallback(ctx, t.Name, t.ImageURL)
 	}
 
@@ -108,48 +113,66 @@ func (h *Handler) GetFixtureDetailsByLeague(w http.ResponseWriter, r *http.Reque
 
 	teamStatsDTO := make([]fixtureTeamStatsDTO, 0, len(teamStats))
 	for _, item := range teamStats {
+		teamName := strings.TrimSpace(teamNameByID[item.TeamID])
+		if teamName == "" && item.TeamExternalID > 0 {
+			teamName = strings.TrimSpace(teamNameByRefID[item.TeamExternalID])
+		}
 		teamStatsDTO = append(teamStatsDTO, fixtureTeamStatsDTO{
-			TeamID:        item.TeamID,
-			TeamName:      strings.TrimSpace(teamNameByID[item.TeamID]),
-			PossessionPct: item.PossessionPct,
-			Shots:         item.Shots,
-			ShotsOnTarget: item.ShotsOnTarget,
-			Corners:       item.Corners,
-			Fouls:         item.Fouls,
-			Offsides:      item.Offsides,
+			TeamID:         item.TeamID,
+			TeamExternalID: item.TeamExternalID,
+			TeamName:       teamName,
+			PossessionPct:  item.PossessionPct,
+			Shots:          item.Shots,
+			ShotsOnTarget:  item.ShotsOnTarget,
+			Corners:        item.Corners,
+			Fouls:          item.Fouls,
+			Offsides:       item.Offsides,
+			AdvancedStats:  item.AdvancedStats,
 		})
 	}
 
 	playerStatsDTO := make([]fixturePlayerStatsDTO, 0, len(playerStats))
 	for _, item := range playerStats {
+		teamName := strings.TrimSpace(teamNameByID[item.TeamID])
+		if teamName == "" && item.TeamExternalID > 0 {
+			teamName = strings.TrimSpace(teamNameByRefID[item.TeamExternalID])
+		}
 		playerStatsDTO = append(playerStatsDTO, fixturePlayerStatsDTO{
-			PlayerID:      item.PlayerID,
-			PlayerName:    strings.TrimSpace(playerNameByID[item.PlayerID]),
-			TeamID:        item.TeamID,
-			TeamName:      strings.TrimSpace(teamNameByID[item.TeamID]),
-			MinutesPlayed: item.MinutesPlayed,
-			Goals:         item.Goals,
-			Assists:       item.Assists,
-			CleanSheet:    item.CleanSheet,
-			YellowCards:   item.YellowCards,
-			RedCards:      item.RedCards,
-			Saves:         item.Saves,
-			FantasyPoints: item.FantasyPoints,
+			PlayerID:         item.PlayerID,
+			PlayerExternalID: item.PlayerExternalID,
+			PlayerName:       strings.TrimSpace(playerNameByID[item.PlayerID]),
+			TeamID:           item.TeamID,
+			TeamExternalID:   item.TeamExternalID,
+			TeamName:         teamName,
+			MinutesPlayed:    item.MinutesPlayed,
+			Goals:            item.Goals,
+			Assists:          item.Assists,
+			CleanSheet:       item.CleanSheet,
+			YellowCards:      item.YellowCards,
+			RedCards:         item.RedCards,
+			Saves:            item.Saves,
+			FantasyPoints:    item.FantasyPoints,
+			AdvancedStats:    item.AdvancedStats,
 		})
 	}
 
 	eventsDTO := make([]fixtureEventDTO, 0, len(events))
 	for _, item := range events {
 		eventsDTO = append(eventsDTO, fixtureEventDTO{
-			EventID:        item.EventID,
-			FixtureID:      item.FixtureID,
-			TeamID:         item.TeamID,
-			PlayerID:       item.PlayerID,
-			AssistPlayerID: item.AssistPlayerID,
-			EventType:      item.EventType,
-			Detail:         item.Detail,
-			Minute:         item.Minute,
-			ExtraMinute:    item.ExtraMinute,
+			EventID:                item.EventID,
+			FixtureID:              item.FixtureID,
+			FixtureExternalID:      item.FixtureExternalID,
+			TeamID:                 item.TeamID,
+			TeamExternalID:         item.TeamExternalID,
+			PlayerID:               item.PlayerID,
+			PlayerExternalID:       item.PlayerExternalID,
+			AssistPlayerID:         item.AssistPlayerID,
+			AssistPlayerExternalID: item.AssistPlayerExternalID,
+			EventType:              item.EventType,
+			Detail:                 item.Detail,
+			Minute:                 item.Minute,
+			ExtraMinute:            item.ExtraMinute,
+			Metadata:               item.Metadata,
 		})
 	}
 
@@ -178,15 +201,20 @@ func (h *Handler) ListFixtureEventsByLeague(w http.ResponseWriter, r *http.Reque
 	out := make([]fixtureEventDTO, 0, len(items))
 	for _, item := range items {
 		out = append(out, fixtureEventDTO{
-			EventID:        item.EventID,
-			FixtureID:      item.FixtureID,
-			TeamID:         item.TeamID,
-			PlayerID:       item.PlayerID,
-			AssistPlayerID: item.AssistPlayerID,
-			EventType:      item.EventType,
-			Detail:         item.Detail,
-			Minute:         item.Minute,
-			ExtraMinute:    item.ExtraMinute,
+			EventID:                item.EventID,
+			FixtureID:              item.FixtureID,
+			FixtureExternalID:      item.FixtureExternalID,
+			TeamID:                 item.TeamID,
+			TeamExternalID:         item.TeamExternalID,
+			PlayerID:               item.PlayerID,
+			PlayerExternalID:       item.PlayerExternalID,
+			AssistPlayerID:         item.AssistPlayerID,
+			AssistPlayerExternalID: item.AssistPlayerExternalID,
+			EventType:              item.EventType,
+			Detail:                 item.Detail,
+			Minute:                 item.Minute,
+			ExtraMinute:            item.ExtraMinute,
+			Metadata:               item.Metadata,
 		})
 	}
 
@@ -212,17 +240,26 @@ func (h *Handler) IngestPlayerFixtureStats(w http.ResponseWriter, r *http.Reques
 	stats := make([]playerstats.FixtureStat, 0, len(req.Stats))
 	rawItems := make([]rawdata.Payload, 0, len(req.Stats))
 	for _, item := range req.Stats {
+		playerKey := strings.TrimSpace(item.PlayerID)
+		if playerKey == "" && item.ExternalPlayerID > 0 {
+			playerKey = fmt.Sprintf("ext:%d", item.ExternalPlayerID)
+		}
+
 		stats = append(stats, playerstats.FixtureStat{
-			PlayerID:      item.PlayerID,
-			TeamID:        item.TeamID,
-			MinutesPlayed: item.MinutesPlayed,
-			Goals:         item.Goals,
-			Assists:       item.Assists,
-			CleanSheet:    item.CleanSheet,
-			YellowCards:   item.YellowCards,
-			RedCards:      item.RedCards,
-			Saves:         item.Saves,
-			FantasyPoints: item.FantasyPoints,
+			PlayerID:          item.PlayerID,
+			PlayerExternalID:  item.ExternalPlayerID,
+			TeamID:            item.TeamID,
+			TeamExternalID:    item.ExternalTeamID,
+			FixtureExternalID: item.ExternalFixtureID,
+			MinutesPlayed:     item.MinutesPlayed,
+			Goals:             item.Goals,
+			Assists:           item.Assists,
+			CleanSheet:        item.CleanSheet,
+			YellowCards:       item.YellowCards,
+			RedCards:          item.RedCards,
+			Saves:             item.Saves,
+			FantasyPoints:     item.FantasyPoints,
+			AdvancedStats:     item.AdvancedStats,
 		})
 		if len(item.Payload) > 0 {
 			payloadJSON, err := marshalPayloadJSON(ctx, item.Payload)
@@ -232,7 +269,7 @@ func (h *Handler) IngestPlayerFixtureStats(w http.ResponseWriter, r *http.Reques
 			}
 			rawItems = append(rawItems, rawdata.Payload{
 				EntityType:      "player_fixture_stat",
-				EntityKey:       req.FixtureID + ":" + item.PlayerID,
+				EntityKey:       req.FixtureID + ":" + playerKey,
 				FixturePublicID: req.FixtureID,
 				PlayerPublicID:  item.PlayerID,
 				TeamPublicID:    item.TeamID,
@@ -366,14 +403,22 @@ func (h *Handler) IngestTeamFixtureStats(w http.ResponseWriter, r *http.Request)
 	stats := make([]teamstats.FixtureStat, 0, len(req.Stats))
 	rawItems := make([]rawdata.Payload, 0, len(req.Stats))
 	for _, item := range req.Stats {
+		teamKey := strings.TrimSpace(item.TeamID)
+		if teamKey == "" && item.ExternalTeamID > 0 {
+			teamKey = fmt.Sprintf("ext:%d", item.ExternalTeamID)
+		}
+
 		stats = append(stats, teamstats.FixtureStat{
-			TeamID:        item.TeamID,
-			PossessionPct: item.PossessionPct,
-			Shots:         item.Shots,
-			ShotsOnTarget: item.ShotsOnTarget,
-			Corners:       item.Corners,
-			Fouls:         item.Fouls,
-			Offsides:      item.Offsides,
+			TeamID:            item.TeamID,
+			TeamExternalID:    item.ExternalTeamID,
+			FixtureExternalID: item.ExternalFixtureID,
+			PossessionPct:     item.PossessionPct,
+			Shots:             item.Shots,
+			ShotsOnTarget:     item.ShotsOnTarget,
+			Corners:           item.Corners,
+			Fouls:             item.Fouls,
+			Offsides:          item.Offsides,
+			AdvancedStats:     item.AdvancedStats,
 		})
 		if len(item.Payload) > 0 {
 			payloadJSON, err := marshalPayloadJSON(ctx, item.Payload)
@@ -383,7 +428,7 @@ func (h *Handler) IngestTeamFixtureStats(w http.ResponseWriter, r *http.Request)
 			}
 			rawItems = append(rawItems, rawdata.Payload{
 				EntityType:      "team_fixture_stat",
-				EntityKey:       req.FixtureID + ":" + item.TeamID,
+				EntityKey:       req.FixtureID + ":" + teamKey,
 				FixturePublicID: req.FixtureID,
 				TeamPublicID:    item.TeamID,
 				PayloadJSON:     payloadJSON,
@@ -431,14 +476,19 @@ func (h *Handler) IngestFixtureEvents(w http.ResponseWriter, r *http.Request) {
 	rawItems := make([]rawdata.Payload, 0, len(req.Events))
 	for _, item := range req.Events {
 		events = append(events, playerstats.FixtureEvent{
-			EventID:        item.EventID,
-			TeamID:         item.TeamID,
-			PlayerID:       item.PlayerID,
-			AssistPlayerID: item.AssistPlayerID,
-			EventType:      item.EventType,
-			Detail:         item.Detail,
-			Minute:         item.Minute,
-			ExtraMinute:    item.ExtraMinute,
+			EventID:                item.EventID,
+			FixtureExternalID:      item.ExternalFixtureID,
+			TeamID:                 item.TeamID,
+			TeamExternalID:         item.ExternalTeamID,
+			PlayerID:               item.PlayerID,
+			PlayerExternalID:       item.ExternalPlayerID,
+			AssistPlayerID:         item.AssistPlayerID,
+			AssistPlayerExternalID: item.ExternalAssistPlayerID,
+			EventType:              item.EventType,
+			Detail:                 item.Detail,
+			Minute:                 item.Minute,
+			ExtraMinute:            item.ExtraMinute,
+			Metadata:               item.Metadata,
 		})
 		if len(item.Payload) > 0 {
 			payloadJSON, err := marshalPayloadJSON(ctx, item.Payload)
@@ -536,6 +586,66 @@ func (h *Handler) IngestRawPayloads(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(ctx, w, http.StatusOK, map[string]any{
 		"count":   len(items),
 		"updated": true,
+	})
+}
+
+func (h *Handler) IngestLeagueStandings(w http.ResponseWriter, r *http.Request) {
+	ctx, span := startSpan(r.Context(), "httpapi.Handler.IngestLeagueStandings")
+	defer span.End()
+
+	var req ingestLeagueStandingsRequest
+	decoder := jsoniter.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(ctx, w, fmt.Errorf("%w: invalid JSON payload: %v", usecase.ErrInvalidInput, err))
+		return
+	}
+	if err := h.validateRequest(ctx, req); err != nil {
+		writeError(ctx, w, err)
+		return
+	}
+
+	items := make([]leaguestanding.Standing, 0, len(req.Items))
+	for _, item := range req.Items {
+		var sourceUpdatedAt *time.Time
+		if strings.TrimSpace(item.SourceUpdatedAt) != "" {
+			parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(item.SourceUpdatedAt))
+			if err != nil {
+				writeError(ctx, w, fmt.Errorf("%w: invalid source_updated_at for team_id=%s", usecase.ErrInvalidInput, item.TeamID))
+				return
+			}
+			sourceUpdatedAt = &parsed
+		}
+
+		items = append(items, leaguestanding.Standing{
+			LeagueID:        req.LeagueID,
+			TeamID:          item.TeamID,
+			IsLive:          req.IsLive,
+			Position:        item.Position,
+			Played:          item.Played,
+			Won:             item.Won,
+			Draw:            item.Draw,
+			Lost:            item.Lost,
+			GoalsFor:        item.GoalsFor,
+			GoalsAgainst:    item.GoalsAgainst,
+			GoalDifference:  item.GoalDifference,
+			Points:          item.Points,
+			Form:            item.Form,
+			SourceUpdatedAt: sourceUpdatedAt,
+		})
+	}
+
+	if err := h.ingestionService.ReplaceLeagueStandings(ctx, req.LeagueID, req.IsLive, items); err != nil {
+		h.logger.WarnContext(ctx, "ingest league standings failed", "league_id", req.LeagueID, "is_live", req.IsLive, "count", len(items), "error", err)
+		writeError(ctx, w, err)
+		return
+	}
+
+	writeSuccess(ctx, w, http.StatusOK, map[string]any{
+		"league_id": req.LeagueID,
+		"is_live":   req.IsLive,
+		"count":     len(items),
+		"updated":   true,
 	})
 }
 

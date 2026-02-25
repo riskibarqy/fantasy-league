@@ -5,7 +5,14 @@ import (
 	"net/http"
 )
 
-func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, swaggerEnabled bool, corsAllowedOrigins []string) http.Handler {
+func NewRouter(
+	handler *Handler,
+	verifier TokenVerifier,
+	logger *slog.Logger,
+	swaggerEnabled bool,
+	corsAllowedOrigins []string,
+	internalJobToken string,
+) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -14,6 +21,7 @@ func NewRouter(handler *Handler, verifier TokenVerifier, logger *slog.Logger, sw
 	registerSystemRoutes(mux, handler, swaggerEnabled)
 	registerPublicDomainRoutes(mux, handler)
 	registerAuthorizedRoutes(mux, handler, verifier)
+	registerInternalJobRoutes(mux, handler, internalJobToken)
 
 	return RequestTracing(RequestLogging(logger, CORS(corsAllowedOrigins, recoverPanic(logger, mux))))
 }

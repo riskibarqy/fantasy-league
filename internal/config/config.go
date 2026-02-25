@@ -42,6 +42,22 @@ type Config struct {
 	PyroscopeBasicAuthUser      string
 	PyroscopeBasicAuthPassword  string
 	PyroscopeUploadRate         time.Duration
+	SportMonksEnabled           bool
+	SportMonksBaseURL           string
+	SportMonksToken             string
+	SportMonksTimeout           time.Duration
+	SportMonksMaxRetries        int
+	SportMonksSeasonIDByLeague  map[string]int64
+	SportMonksLeagueIDByLeague  map[string]int64
+	InternalJobToken            string
+	QStashEnabled               bool
+	QStashBaseURL               string
+	QStashToken                 string
+	QStashTargetBaseURL         string
+	QStashRetries               int
+	JobScheduleInterval         time.Duration
+	JobLiveInterval             time.Duration
+	JobPreKickoffLead           time.Duration
 	LogLevel                    slog.Level
 }
 
@@ -96,6 +112,94 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("PYROSCOPE_UPLOAD_RATE must be > 0")
 	}
 
+	jobScheduleInterval, err := time.ParseDuration(getEnv("JOB_SCHEDULE_INTERVAL", "15m"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse JOB_SCHEDULE_INTERVAL: %w", err)
+	}
+	if jobScheduleInterval <= 0 {
+		return Config{}, fmt.Errorf("JOB_SCHEDULE_INTERVAL must be > 0")
+	}
+
+	jobLiveInterval, err := time.ParseDuration(getEnv("JOB_LIVE_INTERVAL", "5m"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse JOB_LIVE_INTERVAL: %w", err)
+	}
+	if jobLiveInterval <= 0 {
+		return Config{}, fmt.Errorf("JOB_LIVE_INTERVAL must be > 0")
+	}
+
+	jobPreKickoffLead, err := time.ParseDuration(getEnv("JOB_PRE_KICKOFF_LEAD", "15m"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse JOB_PRE_KICKOFF_LEAD: %w", err)
+	}
+	if jobPreKickoffLead <= 0 {
+		return Config{}, fmt.Errorf("JOB_PRE_KICKOFF_LEAD must be > 0")
+	}
+
+	sportMonksEnabled, err := strconv.ParseBool(getEnv("SPORTMONKS_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_ENABLED: %w", err)
+	}
+	sportMonksTimeout, err := time.ParseDuration(getEnv("SPORTMONKS_TIMEOUT", "20s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_TIMEOUT: %w", err)
+	}
+	if sportMonksTimeout <= 0 {
+		return Config{}, fmt.Errorf("SPORTMONKS_TIMEOUT must be > 0")
+	}
+	sportMonksMaxRetries, err := getEnvAsInt("SPORTMONKS_MAX_RETRIES", 1)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_MAX_RETRIES: %w", err)
+	}
+	if sportMonksMaxRetries < 0 {
+		return Config{}, fmt.Errorf("SPORTMONKS_MAX_RETRIES must be >= 0")
+	}
+	sportMonksBaseURL := strings.TrimSpace(getEnv("SPORTMONKS_BASE_URL", "https://api.sportmonks.com/v3/football"))
+	sportMonksToken := strings.TrimSpace(getEnv("SPORTMONKS_TOKEN", ""))
+	sportMonksSeasonIDByLeague, err := parseIDMap(getEnv("SPORTMONKS_SEASON_ID_MAP", ""))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_SEASON_ID_MAP: %w", err)
+	}
+	sportMonksLeagueIDByLeague, err := parseIDMap(getEnv("SPORTMONKS_LEAGUE_ID_MAP", ""))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse SPORTMONKS_LEAGUE_ID_MAP: %w", err)
+	}
+	if sportMonksEnabled {
+		if sportMonksToken == "" {
+			return Config{}, fmt.Errorf("SPORTMONKS_TOKEN is required when SPORTMONKS_ENABLED=true")
+		}
+		if len(sportMonksSeasonIDByLeague) == 0 {
+			return Config{}, fmt.Errorf("SPORTMONKS_SEASON_ID_MAP is required when SPORTMONKS_ENABLED=true")
+		}
+	}
+
+	qstashEnabled, err := strconv.ParseBool(getEnv("QSTASH_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_ENABLED: %w", err)
+	}
+	qstashRetries, err := getEnvAsInt("QSTASH_RETRIES", 3)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse QSTASH_RETRIES: %w", err)
+	}
+	if qstashRetries < 0 {
+		return Config{}, fmt.Errorf("QSTASH_RETRIES must be >= 0")
+	}
+	qstashBaseURL := strings.TrimSpace(getEnv("QSTASH_BASE_URL", "https://qstash.upstash.io"))
+	qstashToken := strings.TrimSpace(getEnv("QSTASH_TOKEN", ""))
+	qstashTargetBaseURL := strings.TrimSpace(getEnv("QSTASH_TARGET_BASE_URL", ""))
+	internalJobToken := strings.TrimSpace(getEnv("INTERNAL_JOB_TOKEN", ""))
+	if qstashEnabled {
+		if qstashToken == "" {
+			return Config{}, fmt.Errorf("QSTASH_TOKEN is required when QSTASH_ENABLED=true")
+		}
+		if qstashTargetBaseURL == "" {
+			return Config{}, fmt.Errorf("QSTASH_TARGET_BASE_URL is required when QSTASH_ENABLED=true")
+		}
+		if internalJobToken == "" {
+			return Config{}, fmt.Errorf("INTERNAL_JOB_TOKEN is required when QSTASH_ENABLED=true")
+		}
+	}
+
 	cfg := Config{
 		AppEnv:                     appEnv,
 		ServiceName:                getEnv("APP_SERVICE_NAME", "fantasy-league-api"),
@@ -118,6 +222,22 @@ func Load() (Config, error) {
 		PyroscopeBasicAuthUser:     strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_USER", "")),
 		PyroscopeBasicAuthPassword: strings.TrimSpace(getEnv("PYROSCOPE_BASIC_AUTH_PASSWORD", "")),
 		PyroscopeUploadRate:        pyroscopeUploadRate,
+		SportMonksEnabled:          sportMonksEnabled,
+		SportMonksBaseURL:          sportMonksBaseURL,
+		SportMonksToken:            sportMonksToken,
+		SportMonksTimeout:          sportMonksTimeout,
+		SportMonksMaxRetries:       sportMonksMaxRetries,
+		SportMonksSeasonIDByLeague: sportMonksSeasonIDByLeague,
+		SportMonksLeagueIDByLeague: sportMonksLeagueIDByLeague,
+		InternalJobToken:           internalJobToken,
+		QStashEnabled:              qstashEnabled,
+		QStashBaseURL:              qstashBaseURL,
+		QStashToken:                qstashToken,
+		QStashTargetBaseURL:        qstashTargetBaseURL,
+		QStashRetries:              qstashRetries,
+		JobScheduleInterval:        jobScheduleInterval,
+		JobLiveInterval:            jobLiveInterval,
+		JobPreKickoffLead:          jobPreKickoffLead,
 	}
 	cfg.PyroscopeAppName = strings.TrimSpace(getEnv("PYROSCOPE_APP_NAME", cfg.ServiceName))
 	if cfg.PyroscopeEnabled && cfg.PyroscopeAppName == "" {
@@ -253,6 +373,37 @@ func splitCSV(v string) []string {
 	}
 
 	return out
+}
+
+func parseIDMap(raw string) (map[string]int64, error) {
+	out := make(map[string]int64)
+	parts := strings.Split(raw, ",")
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+
+		segments := strings.SplitN(item, ":", 2)
+		if len(segments) != 2 {
+			return nil, fmt.Errorf("invalid map item %q, expected league_id:number", item)
+		}
+
+		key := strings.TrimSpace(segments[0])
+		if key == "" {
+			return nil, fmt.Errorf("empty league id in item %q", item)
+		}
+		value, err := strconv.ParseInt(strings.TrimSpace(segments[1]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number in item %q: %w", item, err)
+		}
+		if value <= 0 {
+			return nil, fmt.Errorf("id must be > 0 in item %q", item)
+		}
+
+		out[key] = value
+	}
+	return out, nil
 }
 
 const (

@@ -12,7 +12,7 @@ type fixtureTableModel struct {
 	Gameweek     int            `db:"gameweek"`
 	HomeTeam     string         `db:"home_team"`
 	AwayTeam     string         `db:"away_team"`
-	FixtureRefID sql.NullInt64  `db:"fixture_id"`
+	FixtureRefID sql.NullInt64  `db:"external_fixture_id"`
 	HomeTeamID   sql.NullString `db:"home_team_public_id"`
 	AwayTeamID   sql.NullString `db:"away_team_public_id"`
 	KickoffAt    time.Time      `db:"kickoff_at"`
@@ -33,7 +33,7 @@ type fixtureInsertModel struct {
 	Gameweek     int        `db:"gameweek"`
 	HomeTeam     string     `db:"home_team"`
 	AwayTeam     string     `db:"away_team"`
-	FixtureRefID *int64     `db:"fixture_id"`
+	FixtureRefID *int64     `db:"external_fixture_id"`
 	HomeTeamID   *string    `db:"home_team_public_id"`
 	AwayTeamID   *string    `db:"away_team_public_id"`
 	KickoffAt    time.Time  `db:"kickoff_at"`

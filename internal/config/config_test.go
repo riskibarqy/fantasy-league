@@ -178,3 +178,109 @@ func TestLoad_CacheConfigParsing(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_QStashConfigParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+
+	t.Run("disabled by default", func(t *testing.T) {
+		t.Setenv("QSTASH_ENABLED", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.QStashEnabled {
+			t.Fatalf("expected QStashEnabled=false by default")
+		}
+		if cfg.JobScheduleInterval != 15*time.Minute {
+			t.Fatalf("unexpected default job schedule interval: %s", cfg.JobScheduleInterval)
+		}
+		if cfg.JobLiveInterval != 5*time.Minute {
+			t.Fatalf("unexpected default job live interval: %s", cfg.JobLiveInterval)
+		}
+		if cfg.JobPreKickoffLead != 15*time.Minute {
+			t.Fatalf("unexpected default job pre kickoff lead: %s", cfg.JobPreKickoffLead)
+		}
+	})
+
+	t.Run("enabled requires token and target and internal token", func(t *testing.T) {
+		t.Setenv("QSTASH_ENABLED", "true")
+		t.Setenv("QSTASH_TOKEN", "")
+		t.Setenv("QSTASH_TARGET_BASE_URL", "")
+		t.Setenv("INTERNAL_JOB_TOKEN", "")
+
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error when QSTASH_ENABLED=true without required env")
+		}
+	})
+
+	t.Run("enabled with required values", func(t *testing.T) {
+		t.Setenv("QSTASH_ENABLED", "true")
+		t.Setenv("QSTASH_TOKEN", "qstash-token")
+		t.Setenv("QSTASH_TARGET_BASE_URL", "https://fantasy-league.fly.dev")
+		t.Setenv("INTERNAL_JOB_TOKEN", "internal-job-token")
+		t.Setenv("QSTASH_RETRIES", "2")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.QStashEnabled {
+			t.Fatalf("expected QStashEnabled=true")
+		}
+		if cfg.QStashRetries != 2 {
+			t.Fatalf("unexpected qstash retries: %d", cfg.QStashRetries)
+		}
+		if cfg.InternalJobToken != "internal-job-token" {
+			t.Fatalf("unexpected internal job token: %q", cfg.InternalJobToken)
+		}
+	})
+}
+
+func TestLoad_SportMonksConfigParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+
+	t.Run("disabled by default", func(t *testing.T) {
+		t.Setenv("SPORTMONKS_ENABLED", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.SportMonksEnabled {
+			t.Fatalf("expected SportMonksEnabled=false by default")
+		}
+	})
+
+	t.Run("enabled requires token and season map", func(t *testing.T) {
+		t.Setenv("SPORTMONKS_ENABLED", "true")
+		t.Setenv("SPORTMONKS_TOKEN", "")
+		t.Setenv("SPORTMONKS_SEASON_ID_MAP", "")
+		if _, err := Load(); err == nil {
+			t.Fatalf("expected error when SPORTMONKS_ENABLED=true without token/season map")
+		}
+	})
+
+	t.Run("enabled with valid values", func(t *testing.T) {
+		t.Setenv("SPORTMONKS_ENABLED", "true")
+		t.Setenv("SPORTMONKS_TOKEN", "token")
+		t.Setenv("SPORTMONKS_SEASON_ID_MAP", "idn-liga-1-2025:25965,global-liga-1-2025:23614")
+		t.Setenv("SPORTMONKS_LEAGUE_ID_MAP", "idn-liga-1-2025:123")
+		t.Setenv("SPORTMONKS_TIMEOUT", "15s")
+		t.Setenv("SPORTMONKS_MAX_RETRIES", "2")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.SportMonksEnabled {
+			t.Fatalf("expected SportMonksEnabled=true")
+		}
+		if cfg.SportMonksSeasonIDByLeague["idn-liga-1-2025"] != 25965 {
+			t.Fatalf("unexpected season map value")
+		}
+		if cfg.SportMonksLeagueIDByLeague["idn-liga-1-2025"] != 123 {
+			t.Fatalf("unexpected league map value")
+		}
+	})
+}

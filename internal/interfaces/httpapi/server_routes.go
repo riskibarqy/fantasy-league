@@ -23,6 +23,8 @@ func registerPublicDomainRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players/{playerID}", handler.GetPlayerDetailsByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players/{playerID}/history", handler.GetPlayerHistoryByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/fixtures", handler.ListFixturesByLeague)
+	mux.HandleFunc("GET /v1/leagues/{leagueID}/standings", handler.ListLeagueStandings)
+	mux.HandleFunc("GET /v1/leagues/{leagueID}/standings/live", handler.ListLiveLeagueStandings)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/fixtures/{fixtureID}", handler.GetFixtureDetailsByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/fixtures/{fixtureID}/events", handler.ListFixtureEventsByLeague)
 }
@@ -33,6 +35,12 @@ func registerAuthorizedRoutes(mux *http.ServeMux, handler *Handler, verifier Tok
 	registerAuthorizedOnboardingRoutes(mux, handler, verifier)
 	registerAuthorizedCustomLeagueRoutes(mux, handler, verifier)
 	registerAuthorizedIngestionRoutes(mux, handler, verifier)
+}
+
+func registerInternalJobRoutes(mux *http.ServeMux, handler *Handler, internalJobToken string) {
+	mux.Handle("POST /v1/internal/jobs/bootstrap", RequireInternalJobToken(internalJobToken, http.HandlerFunc(handler.RunBootstrapJob)))
+	mux.Handle("POST /v1/internal/jobs/sync-schedule", RequireInternalJobToken(internalJobToken, http.HandlerFunc(handler.RunSyncScheduleJob)))
+	mux.Handle("POST /v1/internal/jobs/sync-live", RequireInternalJobToken(internalJobToken, http.HandlerFunc(handler.RunSyncLiveJob)))
 }
 
 func registerAuthorizedDashboardRoutes(mux *http.ServeMux, handler *Handler, verifier TokenVerifier) {
@@ -71,4 +79,5 @@ func registerAuthorizedIngestionRoutes(mux *http.ServeMux, handler *Handler, ver
 	mux.Handle("POST /v1/internal/ingestion/team-stats", RequireAuth(verifier, http.HandlerFunc(handler.IngestTeamFixtureStats)))
 	mux.Handle("POST /v1/internal/ingestion/fixture-events", RequireAuth(verifier, http.HandlerFunc(handler.IngestFixtureEvents)))
 	mux.Handle("POST /v1/internal/ingestion/raw-payloads", RequireAuth(verifier, http.HandlerFunc(handler.IngestRawPayloads)))
+	mux.Handle("POST /v1/internal/ingestion/standings", RequireAuth(verifier, http.HandlerFunc(handler.IngestLeagueStandings)))
 }

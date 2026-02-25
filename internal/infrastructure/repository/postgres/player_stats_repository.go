@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	qb "github.com/riskibarqy/fantasy-league/internal/platform/querybuilder"
 )
@@ -80,6 +82,7 @@ func (r *PlayerStatsRepository) ListMatchHistoryByLeagueAndPlayer(ctx context.Co
 		"pfs.red_cards",
 		"pfs.saves",
 		"pfs.fantasy_points",
+		"pfs.advanced_stats",
 	).From("player_fixture_stats pfs JOIN fixtures f ON f.public_id = pfs.fixture_public_id").
 		Where(
 			qb.Eq("f.league_public_id", leagueID),
@@ -107,7 +110,7 @@ func (r *PlayerStatsRepository) ListMatchHistoryByLeagueAndPlayer(ctx context.Co
 			KickoffAt:     row.KickoffAt,
 			HomeTeam:      row.HomeTeam,
 			AwayTeam:      row.AwayTeam,
-			TeamID:        row.TeamID,
+			TeamID:        nullStringToString(row.TeamID),
 			MinutesPlayed: row.MinutesPlayed,
 			Goals:         row.Goals,
 			Assists:       row.Assists,
@@ -126,7 +129,10 @@ func (r *PlayerStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.C
 	query, args, err := qb.Select(
 		"pfs.fixture_public_id",
 		"pfs.player_public_id",
+		"pfs.external_player_id",
 		"pfs.team_public_id",
+		"pfs.external_team_id",
+		"pfs.external_fixture_id",
 		"pfs.minutes_played",
 		"pfs.goals",
 		"pfs.assists",
@@ -135,6 +141,7 @@ func (r *PlayerStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.C
 		"pfs.red_cards",
 		"pfs.saves",
 		"pfs.fantasy_points",
+		"pfs.advanced_stats",
 	).From("player_fixture_stats pfs JOIN fixtures f ON f.public_id = pfs.fixture_public_id").
 		Where(
 			qb.Eq("f.league_public_id", leagueID),
@@ -156,17 +163,21 @@ func (r *PlayerStatsRepository) ListFixtureStatsByLeagueAndFixture(ctx context.C
 	out := make([]playerstats.FixtureStat, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, playerstats.FixtureStat{
-			FixtureID:     row.FixtureID,
-			PlayerID:      row.PlayerID,
-			TeamID:        row.TeamID,
-			MinutesPlayed: row.MinutesPlayed,
-			Goals:         row.Goals,
-			Assists:       row.Assists,
-			CleanSheet:    row.CleanSheet,
-			YellowCards:   row.YellowCards,
-			RedCards:      row.RedCards,
-			Saves:         row.Saves,
-			FantasyPoints: row.FantasyPoints,
+			FixtureID:         row.FixtureID,
+			FixtureExternalID: nullInt64ToInt64(row.FixtureExternalID),
+			PlayerID:          nullStringToString(row.PlayerID),
+			PlayerExternalID:  nullInt64ToInt64(row.PlayerExternalID),
+			TeamID:            nullStringToString(row.TeamID),
+			TeamExternalID:    nullInt64ToInt64(row.TeamExternalID),
+			MinutesPlayed:     row.MinutesPlayed,
+			Goals:             row.Goals,
+			Assists:           row.Assists,
+			CleanSheet:        row.CleanSheet,
+			YellowCards:       row.YellowCards,
+			RedCards:          row.RedCards,
+			Saves:             row.Saves,
+			FantasyPoints:     row.FantasyPoints,
+			AdvancedStats:     decodeJSONMap(row.AdvancedStats),
 		})
 	}
 
@@ -177,13 +188,18 @@ func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.
 	query, args, err := qb.Select(
 		"fe.event_id",
 		"fe.fixture_public_id",
+		"fe.external_fixture_id",
 		"fe.team_public_id",
+		"fe.external_team_id",
 		"fe.player_public_id",
+		"fe.external_player_id",
 		"fe.assist_player_public_id",
+		"fe.external_assist_player_id",
 		"fe.event_type",
 		"fe.detail",
 		"fe.minute",
 		"fe.extra_minute",
+		"fe.event_metadata",
 	).From("fixture_events fe JOIN fixtures f ON f.public_id = fe.fixture_public_id").
 		Where(
 			qb.Eq("f.league_public_id", leagueID),
@@ -205,15 +221,20 @@ func (r *PlayerStatsRepository) ListFixtureEventsByLeagueAndFixture(ctx context.
 	out := make([]playerstats.FixtureEvent, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, playerstats.FixtureEvent{
-			EventID:        nullInt64ToInt64(row.EventID),
-			FixtureID:      row.FixtureID,
-			TeamID:         row.TeamID.String,
-			PlayerID:       row.PlayerID.String,
-			AssistPlayerID: row.AssistPlayerID.String,
-			EventType:      row.EventType,
-			Detail:         row.Detail.String,
-			Minute:         row.Minute,
-			ExtraMinute:    row.ExtraMinute,
+			EventID:                nullInt64ToInt64(row.EventID),
+			FixtureID:              row.FixtureID,
+			FixtureExternalID:      nullInt64ToInt64(row.FixtureExternalID),
+			TeamID:                 nullStringToString(row.TeamID),
+			TeamExternalID:         nullInt64ToInt64(row.TeamExternalID),
+			PlayerID:               nullStringToString(row.PlayerID),
+			PlayerExternalID:       nullInt64ToInt64(row.PlayerExternalID),
+			AssistPlayerID:         nullStringToString(row.AssistPlayerID),
+			AssistPlayerExternalID: nullInt64ToInt64(row.AssistPlayerExternalID),
+			EventType:              row.EventType,
+			Detail:                 nullStringToString(row.Detail),
+			Minute:                 row.Minute,
+			ExtraMinute:            row.ExtraMinute,
+			Metadata:               decodeJSONMap(row.Metadata),
 		})
 	}
 
@@ -245,21 +266,35 @@ func (r *PlayerStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureI
 
 	for _, stat := range stats {
 		insertModel := playerFixtureStatInsertModel{
-			FixtureID:     fixtureID,
-			PlayerID:      stat.PlayerID,
-			TeamID:        stat.TeamID,
-			MinutesPlayed: stat.MinutesPlayed,
-			Goals:         stat.Goals,
-			Assists:       stat.Assists,
-			CleanSheet:    stat.CleanSheet,
-			YellowCards:   stat.YellowCards,
-			RedCards:      stat.RedCards,
-			Saves:         stat.Saves,
-			FantasyPoints: stat.FantasyPoints,
+			FixtureID:         fixtureID,
+			ExternalFixtureID: nullableInt64(stat.FixtureExternalID),
+			PlayerID:          nullableString(stat.PlayerID),
+			ExternalPlayerID:  nullableInt64(stat.PlayerExternalID),
+			TeamID:            nullableString(stat.TeamID),
+			ExternalTeamID:    nullableInt64(stat.TeamExternalID),
+			MinutesPlayed:     stat.MinutesPlayed,
+			Goals:             stat.Goals,
+			Assists:           stat.Assists,
+			CleanSheet:        stat.CleanSheet,
+			YellowCards:       stat.YellowCards,
+			RedCards:          stat.RedCards,
+			Saves:             stat.Saves,
+			FantasyPoints:     stat.FantasyPoints,
+			AdvancedStats:     encodeJSONMap(stat.AdvancedStats),
 		}
-		query, args, err := qb.InsertModel("player_fixture_stats", insertModel, `ON CONFLICT (fixture_public_id, player_public_id) WHERE deleted_at IS NULL
+
+		conflictTarget := "player_public_id"
+		conflictWhere := "deleted_at IS NULL"
+		if strings.TrimSpace(stat.PlayerID) == "" {
+			conflictTarget = "external_player_id"
+			conflictWhere = "deleted_at IS NULL AND external_player_id IS NOT NULL"
+		}
+		suffix := fmt.Sprintf(`ON CONFLICT (fixture_public_id, %s) WHERE %s
 DO UPDATE SET
+    external_fixture_id = EXCLUDED.external_fixture_id,
     team_public_id = EXCLUDED.team_public_id,
+    external_team_id = EXCLUDED.external_team_id,
+    external_player_id = EXCLUDED.external_player_id,
     minutes_played = EXCLUDED.minutes_played,
     goals = EXCLUDED.goals,
     assists = EXCLUDED.assists,
@@ -268,12 +303,15 @@ DO UPDATE SET
     red_cards = EXCLUDED.red_cards,
     saves = EXCLUDED.saves,
     fantasy_points = EXCLUDED.fantasy_points,
-    deleted_at = NULL`)
+    advanced_stats = EXCLUDED.advanced_stats,
+    deleted_at = NULL`, conflictTarget, conflictWhere)
+
+		query, args, err := qb.InsertModel("player_fixture_stats", insertModel, suffix)
 		if err != nil {
 			return fmt.Errorf("build upsert player fixture stat query: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return fmt.Errorf("upsert player fixture stat player=%s: %w", stat.PlayerID, err)
+			return fmt.Errorf("upsert player fixture stat player=%s external_player_id=%d: %w", stat.PlayerID, stat.PlayerExternalID, err)
 		}
 	}
 
@@ -308,26 +346,36 @@ func (r *PlayerStatsRepository) ReplaceFixtureEvents(ctx context.Context, fixtur
 
 	for _, event := range events {
 		insertModel := fixtureEventInsertModel{
-			EventID:        nullableInt64(event.EventID),
-			FixtureID:      fixtureID,
-			TeamID:         nullableString(event.TeamID),
-			PlayerID:       nullableString(event.PlayerID),
-			AssistPlayerID: nullableString(event.AssistPlayerID),
-			EventType:      event.EventType,
-			Detail:         nullableString(event.Detail),
-			Minute:         event.Minute,
-			ExtraMinute:    event.ExtraMinute,
+			EventID:                nullableInt64(event.EventID),
+			FixtureID:              fixtureID,
+			ExternalFixtureID:      nullableInt64(event.FixtureExternalID),
+			TeamID:                 nullableString(event.TeamID),
+			ExternalTeamID:         nullableInt64(event.TeamExternalID),
+			PlayerID:               nullableString(event.PlayerID),
+			ExternalPlayerID:       nullableInt64(event.PlayerExternalID),
+			AssistPlayerID:         nullableString(event.AssistPlayerID),
+			ExternalAssistPlayerID: nullableInt64(event.AssistPlayerExternalID),
+			EventType:              event.EventType,
+			Detail:                 nullableString(event.Detail),
+			Minute:                 event.Minute,
+			ExtraMinute:            event.ExtraMinute,
+			Metadata:               encodeJSONMap(event.Metadata),
 		}
 		query, args, err := qb.InsertModel("fixture_events", insertModel, `ON CONFLICT (event_id) WHERE deleted_at IS NULL AND event_id IS NOT NULL
 DO UPDATE SET
     fixture_public_id = EXCLUDED.fixture_public_id,
+    external_fixture_id = EXCLUDED.external_fixture_id,
     team_public_id = EXCLUDED.team_public_id,
+    external_team_id = EXCLUDED.external_team_id,
     player_public_id = EXCLUDED.player_public_id,
+    external_player_id = EXCLUDED.external_player_id,
     assist_player_public_id = EXCLUDED.assist_player_public_id,
+    external_assist_player_id = EXCLUDED.external_assist_player_id,
     event_type = EXCLUDED.event_type,
     detail = EXCLUDED.detail,
     minute = EXCLUDED.minute,
     extra_minute = EXCLUDED.extra_minute,
+    event_metadata = EXCLUDED.event_metadata,
     deleted_at = NULL`)
 		if err != nil {
 			return fmt.Errorf("build upsert fixture event query: %w", err)
@@ -351,6 +399,7 @@ func (r *PlayerStatsRepository) GetFantasyPointsByLeagueAndGameweek(ctx context.
 		Where(
 			qb.Eq("f.league_public_id", leagueID),
 			qb.Eq("f.gameweek", gameweek),
+			qb.Expr("pfs.player_public_id IS NOT NULL"),
 			qb.IsNull("pfs.deleted_at"),
 			qb.IsNull("f.deleted_at"),
 		).
@@ -385,72 +434,90 @@ type seasonStatsRow struct {
 }
 
 type matchHistoryRow struct {
-	FixtureID     string    `db:"fixture_public_id"`
-	Gameweek      int       `db:"gameweek"`
-	KickoffAt     time.Time `db:"kickoff_at"`
-	HomeTeam      string    `db:"home_team"`
-	AwayTeam      string    `db:"away_team"`
-	TeamID        string    `db:"team_public_id"`
-	MinutesPlayed int       `db:"minutes_played"`
-	Goals         int       `db:"goals"`
-	Assists       int       `db:"assists"`
-	CleanSheet    bool      `db:"clean_sheet"`
-	YellowCards   int       `db:"yellow_cards"`
-	RedCards      int       `db:"red_cards"`
-	Saves         int       `db:"saves"`
-	FantasyPoints int       `db:"fantasy_points"`
+	FixtureID     string         `db:"fixture_public_id"`
+	Gameweek      int            `db:"gameweek"`
+	KickoffAt     time.Time      `db:"kickoff_at"`
+	HomeTeam      string         `db:"home_team"`
+	AwayTeam      string         `db:"away_team"`
+	TeamID        sql.NullString `db:"team_public_id"`
+	MinutesPlayed int            `db:"minutes_played"`
+	Goals         int            `db:"goals"`
+	Assists       int            `db:"assists"`
+	CleanSheet    bool           `db:"clean_sheet"`
+	YellowCards   int            `db:"yellow_cards"`
+	RedCards      int            `db:"red_cards"`
+	Saves         int            `db:"saves"`
+	FantasyPoints int            `db:"fantasy_points"`
 }
 
 type fixtureEventRow struct {
-	EventID        sql.NullInt64  `db:"event_id"`
-	FixtureID      string         `db:"fixture_public_id"`
-	TeamID         sql.NullString `db:"team_public_id"`
-	PlayerID       sql.NullString `db:"player_public_id"`
-	AssistPlayerID sql.NullString `db:"assist_player_public_id"`
-	EventType      string         `db:"event_type"`
-	Detail         sql.NullString `db:"detail"`
-	Minute         int            `db:"minute"`
-	ExtraMinute    int            `db:"extra_minute"`
+	EventID                sql.NullInt64  `db:"event_id"`
+	FixtureID              string         `db:"fixture_public_id"`
+	FixtureExternalID      sql.NullInt64  `db:"external_fixture_id"`
+	TeamID                 sql.NullString `db:"team_public_id"`
+	TeamExternalID         sql.NullInt64  `db:"external_team_id"`
+	PlayerID               sql.NullString `db:"player_public_id"`
+	PlayerExternalID       sql.NullInt64  `db:"external_player_id"`
+	AssistPlayerID         sql.NullString `db:"assist_player_public_id"`
+	AssistPlayerExternalID sql.NullInt64  `db:"external_assist_player_id"`
+	EventType              string         `db:"event_type"`
+	Detail                 sql.NullString `db:"detail"`
+	Minute                 int            `db:"minute"`
+	ExtraMinute            int            `db:"extra_minute"`
+	Metadata               string         `db:"event_metadata"`
 }
 
 type fixtureStatRow struct {
-	FixtureID     string `db:"fixture_public_id"`
-	PlayerID      string `db:"player_public_id"`
-	TeamID        string `db:"team_public_id"`
-	MinutesPlayed int    `db:"minutes_played"`
-	Goals         int    `db:"goals"`
-	Assists       int    `db:"assists"`
-	CleanSheet    bool   `db:"clean_sheet"`
-	YellowCards   int    `db:"yellow_cards"`
-	RedCards      int    `db:"red_cards"`
-	Saves         int    `db:"saves"`
-	FantasyPoints int    `db:"fantasy_points"`
+	FixtureID         string         `db:"fixture_public_id"`
+	FixtureExternalID sql.NullInt64  `db:"external_fixture_id"`
+	PlayerID          sql.NullString `db:"player_public_id"`
+	PlayerExternalID  sql.NullInt64  `db:"external_player_id"`
+	TeamID            sql.NullString `db:"team_public_id"`
+	TeamExternalID    sql.NullInt64  `db:"external_team_id"`
+	MinutesPlayed     int            `db:"minutes_played"`
+	Goals             int            `db:"goals"`
+	Assists           int            `db:"assists"`
+	CleanSheet        bool           `db:"clean_sheet"`
+	YellowCards       int            `db:"yellow_cards"`
+	RedCards          int            `db:"red_cards"`
+	Saves             int            `db:"saves"`
+	FantasyPoints     int            `db:"fantasy_points"`
+	AdvancedStats     string         `db:"advanced_stats"`
 }
 
 type playerFixtureStatInsertModel struct {
-	FixtureID     string `db:"fixture_public_id"`
-	PlayerID      string `db:"player_public_id"`
-	TeamID        string `db:"team_public_id"`
-	MinutesPlayed int    `db:"minutes_played"`
-	Goals         int    `db:"goals"`
-	Assists       int    `db:"assists"`
-	CleanSheet    bool   `db:"clean_sheet"`
-	YellowCards   int    `db:"yellow_cards"`
-	RedCards      int    `db:"red_cards"`
-	Saves         int    `db:"saves"`
-	FantasyPoints int    `db:"fantasy_points"`
+	FixtureID         string  `db:"fixture_public_id"`
+	ExternalFixtureID *int64  `db:"external_fixture_id"`
+	PlayerID          *string `db:"player_public_id"`
+	ExternalPlayerID  *int64  `db:"external_player_id"`
+	TeamID            *string `db:"team_public_id"`
+	ExternalTeamID    *int64  `db:"external_team_id"`
+	MinutesPlayed     int     `db:"minutes_played"`
+	Goals             int     `db:"goals"`
+	Assists           int     `db:"assists"`
+	CleanSheet        bool    `db:"clean_sheet"`
+	YellowCards       int     `db:"yellow_cards"`
+	RedCards          int     `db:"red_cards"`
+	Saves             int     `db:"saves"`
+	FantasyPoints     int     `db:"fantasy_points"`
+	AdvancedStats     string  `db:"advanced_stats"`
 }
 
 type fixtureEventInsertModel struct {
-	EventID        *int64  `db:"event_id"`
-	FixtureID      string  `db:"fixture_public_id"`
-	TeamID         *string `db:"team_public_id"`
-	PlayerID       *string `db:"player_public_id"`
-	AssistPlayerID *string `db:"assist_player_public_id"`
-	EventType      string  `db:"event_type"`
-	Detail         *string `db:"detail"`
-	Minute         int     `db:"minute"`
-	ExtraMinute    int     `db:"extra_minute"`
+	EventID                *int64  `db:"event_id"`
+	FixtureID              string  `db:"fixture_public_id"`
+	ExternalFixtureID      *int64  `db:"external_fixture_id"`
+	TeamID                 *string `db:"team_public_id"`
+	ExternalTeamID         *int64  `db:"external_team_id"`
+	PlayerID               *string `db:"player_public_id"`
+	ExternalPlayerID       *int64  `db:"external_player_id"`
+	AssistPlayerID         *string `db:"assist_player_public_id"`
+	ExternalAssistPlayerID *int64  `db:"external_assist_player_id"`
+	EventType              string  `db:"event_type"`
+	Detail                 *string `db:"detail"`
+	Minute                 int     `db:"minute"`
+	ExtraMinute            int     `db:"extra_minute"`
+	Metadata               string  `db:"event_metadata"`
 }
 
 type playerGameweekPointsRow struct {
@@ -472,4 +539,27 @@ func nullableString(value string) *string {
 	}
 	v := value
 	return &v
+}
+
+func encodeJSONMap(value map[string]any) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+	encoded, err := jsoniter.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
+}
+
+func decodeJSONMap(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]any{}
+	}
+	out := make(map[string]any)
+	if err := jsoniter.Unmarshal([]byte(raw), &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }

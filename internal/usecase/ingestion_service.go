@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/riskibarqy/fantasy-league/internal/domain/fixture"
+	"github.com/riskibarqy/fantasy-league/internal/domain/leaguestanding"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
@@ -15,6 +16,7 @@ import (
 
 type IngestionService struct {
 	fixtureWriter   fixtureIngestionWriter
+	standingRepo    leaguestanding.Repository
 	playerStatsRepo playerstats.Repository
 	teamStatsRepo   teamstats.Repository
 	rawDataRepo     rawdata.Repository
@@ -26,12 +28,14 @@ type fixtureIngestionWriter interface {
 
 func NewIngestionService(
 	fixtureWriter fixtureIngestionWriter,
+	standingRepo leaguestanding.Repository,
 	playerStatsRepo playerstats.Repository,
 	teamStatsRepo teamstats.Repository,
 	rawDataRepo rawdata.Repository,
 ) *IngestionService {
 	return &IngestionService{
 		fixtureWriter:   fixtureWriter,
+		standingRepo:    standingRepo,
 		playerStatsRepo: playerStatsRepo,
 		teamStatsRepo:   teamStatsRepo,
 		rawDataRepo:     rawDataRepo,
@@ -77,8 +81,11 @@ func (s *IngestionService) UpsertPlayerFixtureStats(ctx context.Context, fixture
 		item.FixtureID = fixtureID
 		item.PlayerID = strings.TrimSpace(item.PlayerID)
 		item.TeamID = strings.TrimSpace(item.TeamID)
-		if item.PlayerID == "" || item.TeamID == "" {
-			return fmt.Errorf("%w: player_id and team_id are required", ErrInvalidInput)
+		if item.PlayerID == "" && item.PlayerExternalID <= 0 {
+			return fmt.Errorf("%w: player identity is required", ErrInvalidInput)
+		}
+		if item.TeamID == "" && item.TeamExternalID <= 0 {
+			return fmt.Errorf("%w: team identity is required", ErrInvalidInput)
 		}
 		cleaned = append(cleaned, item)
 	}
@@ -99,8 +106,8 @@ func (s *IngestionService) UpsertTeamFixtureStats(ctx context.Context, fixtureID
 	for _, item := range stats {
 		item.FixtureID = fixtureID
 		item.TeamID = strings.TrimSpace(item.TeamID)
-		if item.TeamID == "" {
-			return fmt.Errorf("%w: team_id is required", ErrInvalidInput)
+		if item.TeamID == "" && item.TeamExternalID <= 0 {
+			return fmt.Errorf("%w: team identity is required", ErrInvalidInput)
 		}
 		cleaned = append(cleaned, item)
 	}
@@ -170,5 +177,46 @@ func (s *IngestionService) UpsertRawPayloads(ctx context.Context, source string,
 		return fmt.Errorf("upsert raw payloads: %w", err)
 	}
 
+	return nil
+}
+
+func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID string, live bool, items []leaguestanding.Standing) error {
+	leagueID = strings.TrimSpace(leagueID)
+	if leagueID == "" {
+		return fmt.Errorf("%w: league_id is required", ErrInvalidInput)
+	}
+	if s.standingRepo == nil {
+		return nil
+	}
+
+	cleaned := make([]leaguestanding.Standing, 0, len(items))
+	for _, item := range items {
+		item.LeagueID = leagueID
+		item.TeamID = strings.TrimSpace(item.TeamID)
+		item.Form = strings.TrimSpace(item.Form)
+		item.IsLive = live
+
+		if item.TeamID == "" {
+			return fmt.Errorf("%w: team_id is required", ErrInvalidInput)
+		}
+		if item.Position <= 0 {
+			return fmt.Errorf("%w: position must be greater than zero", ErrInvalidInput)
+		}
+		if item.Played < 0 || item.Won < 0 || item.Draw < 0 || item.Lost < 0 {
+			return fmt.Errorf("%w: played/won/draw/lost cannot be negative", ErrInvalidInput)
+		}
+		if item.GoalsFor < 0 || item.GoalsAgainst < 0 {
+			return fmt.Errorf("%w: goals_for/goals_against cannot be negative", ErrInvalidInput)
+		}
+		if item.Points < 0 {
+			return fmt.Errorf("%w: points cannot be negative", ErrInvalidInput)
+		}
+
+		cleaned = append(cleaned, item)
+	}
+
+	if err := s.standingRepo.ReplaceByLeague(ctx, leagueID, live, cleaned); err != nil {
+		return fmt.Errorf("replace league standings: %w", err)
+	}
 	return nil
 }

@@ -26,9 +26,10 @@ MIGRATIONS_DIR ?= ./db/migrations
 DB_URL ?= postgres://postgres:postgres@localhost:5432/fantasy_league?sslmode=disable
 PPROF_URL ?= http://localhost:6060/debug/pprof
 PPROF_SECONDS ?= 30
+APP_BASE_URL ?= http://localhost:8080
 name ?= new_migration
 
-.PHONY: help run run-dev run-stage run-prod build build-migration test tidy fmt pprof-cpu pprof-heap pprof-goroutine pprof-allocs migrate-up migrate-down migrate-version migrate-force migrate-create migrate-app-up migrate-app-down migrate-app-version migrate-app-force migrate-app-goto check-migrate fly-secrets fly-deploy fly-migrate-up fly-migrate-down fly-migrate-version fly-migrate-force
+.PHONY: help run run-dev run-stage run-prod build build-migration test tidy fmt pprof-cpu pprof-heap pprof-goroutine pprof-allocs migrate-up migrate-down migrate-version migrate-force migrate-create migrate-app-up migrate-app-down migrate-app-version migrate-app-force migrate-app-goto check-migrate jobs-bootstrap fly-secrets fly-deploy fly-migrate-up fly-migrate-down fly-migrate-version fly-migrate-force
 
 help:
 	@echo "Available targets:"
@@ -56,6 +57,7 @@ help:
 	@echo "  make migrate-app-version - run migration binary (version)"
 	@echo "  make migrate-app-force version=1 - run migration binary (force)"
 	@echo "  make migrate-app-goto version=1 - run migration binary (goto)"
+	@echo "  make jobs-bootstrap [league_id=idn-liga-1-2025] - queue initial internal jobs (QStash chain bootstrap)"
 	@echo "  make fly-secrets     - set Fly secrets from env (FLY_APP required)"
 	@echo "  make fly-deploy      - deploy to Fly (FLY_APP required)"
 	@echo "  make fly-migrate-up  - run migrations in Fly machine"
@@ -156,6 +158,15 @@ migrate-app-force:
 migrate-app-goto:
 	@test -n "$(version)" || (echo "version is required. Usage: make migrate-app-goto version=1" && exit 1)
 	DB_URL="$(DB_URL)" MIGRATIONS_DIR="$(MIGRATIONS_DIR)" $(GO) run $(MIGRATION_APP) goto "$(version)"
+
+jobs-bootstrap:
+	@test -n "$$INTERNAL_JOB_TOKEN" || (echo "INTERNAL_JOB_TOKEN is required"; exit 1)
+	@payload="{}"; \
+	if [ -n "$(league_id)" ]; then payload="{\"league_id\":\"$(league_id)\"}"; fi; \
+	curl -sS -X POST "$(APP_BASE_URL)/v1/internal/jobs/bootstrap" \
+		-H "Content-Type: application/json" \
+		-H "X-Internal-Job-Token: $$INTERNAL_JOB_TOKEN" \
+		-d "$$payload"
 
 fly-secrets:
 	@test -n "$$FLY_APP" || (echo "FLY_APP is required (e.g. export FLY_APP=fantasy-league-rw84mq)"; exit 1)

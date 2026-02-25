@@ -29,12 +29,15 @@ type MatchHistory struct {
 }
 
 type FixtureStat struct {
-	FixtureID     string
-	TeamID        string
-	PossessionPct float64
-	Shots         int
-	ShotsOnTarget int
-	Corners       int
-	Fouls         int
-	Offsides      int
+	FixtureID         string
+	FixtureExternalID int64
+	TeamID            string
+	TeamExternalID    int64
+	PossessionPct     float64
+	Shots             int
+	ShotsOnTarget     int
+	Corners           int
+	Fouls             int
+	Offsides          int
+	AdvancedStats     map[string]any
 }
