@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
@@ -112,4 +113,54 @@ func stringSliceToAny(items []string) []any {
 		out = append(out, item)
 	}
 	return out
+}
+
+func (r *PlayerRepository) UpsertPlayers(ctx context.Context, items []player.Player) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx upsert players: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, item := range items {
+		insertModel := playerInsertModel{
+			PublicID:    strings.TrimSpace(item.ID),
+			LeagueID:    strings.TrimSpace(item.LeagueID),
+			TeamID:      strings.TrimSpace(item.TeamID),
+			Name:        strings.TrimSpace(item.Name),
+			Position:    strings.TrimSpace(string(item.Position)),
+			Price:       item.Price,
+			IsActive:    true,
+			PlayerRefID: nullableInt64(item.PlayerRefID),
+			ImageURL:    strings.TrimSpace(item.ImageURL),
+		}
+		query, args, err := qb.InsertModel("players", insertModel, `ON CONFLICT (public_id)
+DO UPDATE SET
+    league_public_id = EXCLUDED.league_public_id,
+    team_public_id = EXCLUDED.team_public_id,
+    name = EXCLUDED.name,
+    position = EXCLUDED.position,
+    price = EXCLUDED.price,
+    is_active = EXCLUDED.is_active,
+    external_player_id = EXCLUDED.external_player_id,
+    image_url = EXCLUDED.image_url,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert player query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert player id=%s external_player_id=%d: %w", item.ID, item.PlayerRefID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert players tx: %w", err)
+	}
+	return nil
 }

@@ -94,6 +94,8 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 
 	payloads := make([]rawdata.Payload, 0, 8)
 	byID := make(map[int64]usecase.ExternalFixture, 128)
+	teamsByID := make(map[int64]usecase.ExternalTeam, 64)
+	playersByID := make(map[int64]usecase.ExternalPlayer, 2048)
 	teamStatsByKey := make(map[string]usecase.ExternalTeamFixtureStat, 512)
 	playerStatsByKey := make(map[string]usecase.ExternalPlayerFixtureStat, 4096)
 	eventsByKey := make(map[string]usecase.ExternalFixtureEvent, 4096)
@@ -113,6 +115,9 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 			for _, item := range round.Fixtures {
 				if item.ID <= 0 {
 					continue
+				}
+				for _, participant := range item.Participants {
+					upsertExternalTeam(teamsByID, mapParticipantToExternalTeam(participant))
 				}
 				homeName, awayName, homeID, awayID := resolveFixtureParticipants(item.Participants)
 				existing := byID[item.ID]
@@ -230,6 +235,7 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 			teamNameByID := make(map[int64]string, len(item.Participants))
 			for _, participant := range item.Participants {
 				teamNameByID[participant.ID] = strings.TrimSpace(participant.Name)
+				upsertExternalTeam(teamsByID, mapParticipantToExternalTeam(participant))
 			}
 
 			existing := byID[item.ID]
@@ -252,6 +258,7 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 				if lineupItem.PlayerID <= 0 || lineupItem.TeamID <= 0 {
 					continue
 				}
+				upsertExternalPlayer(playersByID, mapLineupToExternalPlayer(lineupItem))
 
 				key := fmt.Sprintf("%d:%d", item.ID, lineupItem.PlayerID)
 				stat := playerStatsByKey[key]
@@ -329,6 +336,10 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 	for _, item := range playerStatsByKey {
 		item.AdvancedStats = normalizeMap(item.AdvancedStats)
 		playerStats = append(playerStats, item)
+		upsertExternalPlayer(playersByID, usecase.ExternalPlayer{
+			ExternalID:     item.PlayerExternalID,
+			TeamExternalID: item.TeamExternalID,
+		})
 	}
 	events := make([]usecase.ExternalFixtureEvent, 0, len(eventsByKey))
 	for _, item := range eventsByKey {
@@ -361,8 +372,43 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 		return events[i].EventExternalID < events[j].EventExternalID
 	})
 
+	teams := make([]usecase.ExternalTeam, 0, len(teamsByID))
+	for _, item := range teamsByID {
+		if item.ExternalID <= 0 || strings.TrimSpace(item.Name) == "" {
+			continue
+		}
+		item.Short = strings.TrimSpace(item.Short)
+		item.ImageURL = strings.TrimSpace(item.ImageURL)
+		teams = append(teams, item)
+	}
+	sort.SliceStable(teams, func(i, j int) bool {
+		if teams[i].Name != teams[j].Name {
+			return teams[i].Name < teams[j].Name
+		}
+		return teams[i].ExternalID < teams[j].ExternalID
+	})
+
+	players := make([]usecase.ExternalPlayer, 0, len(playersByID))
+	for _, item := range playersByID {
+		if item.ExternalID <= 0 {
+			continue
+		}
+		item.Name = strings.TrimSpace(item.Name)
+		item.Position = strings.TrimSpace(item.Position)
+		item.ImageURL = strings.TrimSpace(item.ImageURL)
+		players = append(players, item)
+	}
+	sort.SliceStable(players, func(i, j int) bool {
+		if players[i].Name != players[j].Name {
+			return players[i].Name < players[j].Name
+		}
+		return players[i].ExternalID < players[j].ExternalID
+	})
+
 	return usecase.ExternalFixtureBundle{
 		Fixtures:    out,
+		Teams:       teams,
+		Players:     players,
 		TeamStats:   teamStats,
 		PlayerStats: playerStats,
 		Events:      events,
@@ -1379,6 +1425,97 @@ func applyTeamFixtureStat(dst *usecase.ExternalTeamFixtureStat, source fixtureSt
 	}
 }
 
+func mapParticipantToExternalTeam(source fixtureParticipant) usecase.ExternalTeam {
+	return usecase.ExternalTeam{
+		ExternalID: source.ID,
+		Name:       strings.TrimSpace(source.Name),
+		Short:      strings.TrimSpace(source.ShortCode),
+		ImageURL:   strings.TrimSpace(source.ImagePath),
+	}
+}
+
+func upsertExternalTeam(items map[int64]usecase.ExternalTeam, candidate usecase.ExternalTeam) {
+	if len(items) == 0 || candidate.ExternalID <= 0 {
+		return
+	}
+	current := items[candidate.ExternalID]
+	current.ExternalID = candidate.ExternalID
+	current.Name = firstNonEmpty(current.Name, candidate.Name)
+	current.Short = firstNonEmpty(current.Short, candidate.Short)
+	current.ImageURL = firstNonEmpty(current.ImageURL, candidate.ImageURL)
+	items[candidate.ExternalID] = current
+}
+
+func mapLineupToExternalPlayer(source fixtureLineupItem) usecase.ExternalPlayer {
+	return usecase.ExternalPlayer{
+		ExternalID:     source.PlayerID,
+		TeamExternalID: source.TeamID,
+		Name: firstNonEmpty(
+			strings.TrimSpace(source.PlayerName),
+			strings.TrimSpace(source.PlayerDisplayName),
+			strings.TrimSpace(source.PlayerCommonName),
+			strings.TrimSpace(source.PlayerNameAlt),
+		),
+		Position: firstNonEmpty(
+			positionCodeFromID(source.PositionID),
+			positionCodeFromID(source.DetailedPositionID),
+			strings.ToUpper(strings.TrimSpace(source.PositionCode)),
+			normalizePositionName(source.PositionName),
+			normalizePositionName(source.DetailedPositionName),
+		),
+		ImageURL: firstNonEmpty(
+			strings.TrimSpace(source.PlayerImagePath),
+			strings.TrimSpace(source.PlayerImageURL),
+		),
+	}
+}
+
+func upsertExternalPlayer(items map[int64]usecase.ExternalPlayer, candidate usecase.ExternalPlayer) {
+	if len(items) == 0 || candidate.ExternalID <= 0 {
+		return
+	}
+	current := items[candidate.ExternalID]
+	current.ExternalID = candidate.ExternalID
+	current.TeamExternalID = pickID(current.TeamExternalID, candidate.TeamExternalID)
+	current.Name = firstNonEmpty(current.Name, candidate.Name)
+	current.Position = firstNonEmpty(current.Position, candidate.Position)
+	current.ImageURL = firstNonEmpty(current.ImageURL, candidate.ImageURL)
+	if current.Price <= 0 {
+		current.Price = candidate.Price
+	}
+	items[candidate.ExternalID] = current
+}
+
+func positionCodeFromID(value int64) string {
+	switch value {
+	case 24:
+		return "GK"
+	case 25:
+		return "DEF"
+	case 26:
+		return "MID"
+	case 27:
+		return "FWD"
+	default:
+		return ""
+	}
+}
+
+func normalizePositionName(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "goalkeeper", "keeper", "goalie", "gk":
+		return "GK"
+	case "defender", "def", "centre-back", "center-back", "full-back", "wing-back":
+		return "DEF"
+	case "midfielder", "midfielders", "mid", "winger", "attacking midfielder", "defensive midfielder":
+		return "MID"
+	case "forward", "attacker", "striker", "fwd":
+		return "FWD"
+	default:
+		return ""
+	}
+}
+
 type extractedPlayerDetail struct {
 	minutesPlayed int
 	goals         int
@@ -1746,9 +1883,11 @@ type scheduleFixture struct {
 }
 
 type fixtureParticipant struct {
-	ID   int64                  `json:"id"`
-	Name string                 `json:"name"`
-	Meta fixtureParticipantMeta `json:"meta"`
+	ID        int64                  `json:"id"`
+	Name      string                 `json:"name"`
+	ShortCode string                 `json:"short_code"`
+	ImagePath string                 `json:"image_path"`
+	Meta      fixtureParticipantMeta `json:"meta"`
 }
 
 type fixtureParticipantMeta struct {
@@ -1850,9 +1989,20 @@ func (f fixtureEventItem) subTypeID() int64 {
 }
 
 type fixtureLineupItem struct {
-	PlayerID int64              `json:"player_id"`
-	TeamID   int64              `json:"team_id"`
-	Details  []lineupDetailItem `json:"details"`
+	PlayerID             int64              `json:"player_id"`
+	TeamID               int64              `json:"team_id"`
+	PositionID           int64              `json:"position_id"`
+	DetailedPositionID   int64              `json:"detailed_position_id"`
+	PlayerName           string             `json:"player_name"`
+	PlayerNameAlt        string             `json:"name"`
+	PlayerDisplayName    string             `json:"display_name"`
+	PlayerCommonName     string             `json:"common_name"`
+	PlayerImagePath      string             `json:"image_path"`
+	PlayerImageURL       string             `json:"image_url"`
+	PositionCode         string             `json:"position_code"`
+	PositionName         string             `json:"position_name"`
+	DetailedPositionName string             `json:"detailed_position_name"`
+	Details              []lineupDetailItem `json:"details"`
 }
 
 type lineupDetailItem struct {

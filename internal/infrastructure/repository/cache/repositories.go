@@ -71,6 +71,10 @@ type TeamRepository struct {
 	cache *basecache.Store
 }
 
+type teamIngestionWriter interface {
+	UpsertTeams(ctx context.Context, items []team.Team) error
+}
+
 func NewTeamRepository(next team.Repository, cache *basecache.Store) *TeamRepository {
 	return &TeamRepository{next: next, cache: cache}
 }
@@ -109,6 +113,30 @@ func (r *TeamRepository) GetByID(ctx context.Context, leagueID, teamID string) (
 	return cached.value, cached.exists, nil
 }
 
+func (r *TeamRepository) UpsertTeams(ctx context.Context, items []team.Team) error {
+	writer, ok := r.next.(teamIngestionWriter)
+	if !ok {
+		return fmt.Errorf("team repository does not support upsert teams")
+	}
+	if err := writer.UpsertTeams(ctx, items); err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		leagueID := strings.TrimSpace(item.LeagueID)
+		teamID := strings.TrimSpace(item.ID)
+		if leagueID == "" {
+			continue
+		}
+		r.cache.Delete(ctx, "team:list:"+leagueID)
+		if teamID != "" {
+			r.cache.Delete(ctx, "team:id:"+leagueID+":"+teamID)
+		}
+	}
+
+	return nil
+}
+
 type cachedTeamByID struct {
 	value  team.Team
 	exists bool
@@ -117,6 +145,10 @@ type cachedTeamByID struct {
 type PlayerRepository struct {
 	next  player.Repository
 	cache *basecache.Store
+}
+
+type playerIngestionWriter interface {
+	UpsertPlayers(ctx context.Context, items []player.Player) error
 }
 
 func NewPlayerRepository(next player.Repository, cache *basecache.Store) *PlayerRepository {
@@ -157,6 +189,31 @@ func (r *PlayerRepository) GetByIDs(ctx context.Context, leagueID string, player
 
 	items, _ := v.([]player.Player)
 	return append([]player.Player(nil), items...), nil
+}
+
+func (r *PlayerRepository) UpsertPlayers(ctx context.Context, items []player.Player) error {
+	writer, ok := r.next.(playerIngestionWriter)
+	if !ok {
+		return fmt.Errorf("player repository does not support upsert players")
+	}
+	if err := writer.UpsertPlayers(ctx, items); err != nil {
+		return err
+	}
+
+	leagueIDs := make(map[string]struct{})
+	for _, item := range items {
+		leagueID := strings.TrimSpace(item.LeagueID)
+		if leagueID == "" {
+			continue
+		}
+		leagueIDs[leagueID] = struct{}{}
+	}
+	for leagueID := range leagueIDs {
+		r.cache.Delete(ctx, "player:list:"+leagueID)
+		r.cache.DeletePrefix(ctx, "player:ids:"+leagueID+":")
+	}
+
+	return nil
 }
 
 type FixtureRepository struct {

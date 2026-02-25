@@ -27,6 +27,8 @@ type SportDataSyncProvider interface {
 
 type ExternalFixtureBundle struct {
 	Fixtures    []ExternalFixture
+	Teams       []ExternalTeam
+	Players     []ExternalPlayer
 	TeamStats   []ExternalTeamFixtureStat
 	PlayerStats []ExternalPlayerFixtureStat
 	Events      []ExternalFixtureEvent
@@ -63,6 +65,22 @@ type ExternalStanding struct {
 	Points          int
 	Form            string
 	SourceUpdatedAt *time.Time
+}
+
+type ExternalTeam struct {
+	ExternalID int64
+	Name       string
+	Short      string
+	ImageURL   string
+}
+
+type ExternalPlayer struct {
+	ExternalID     int64
+	TeamExternalID int64
+	Name           string
+	Position       string
+	ImageURL       string
+	Price          int64
 }
 
 type ExternalTeamFixtureStat struct {
@@ -315,6 +333,7 @@ type teamMappings struct {
 
 type playerMappings struct {
 	byRefID map[int64]string
+	byRef   map[int64]player.Player
 }
 
 func (s *SportDataSyncService) loadTeamMappings(ctx context.Context, leagueID string) (teamMappings, error) {
@@ -352,10 +371,12 @@ func (s *SportDataSyncService) loadPlayerMappings(ctx context.Context, leagueID 
 
 	out := playerMappings{
 		byRefID: make(map[int64]string, len(items)),
+		byRef:   make(map[int64]player.Player, len(items)),
 	}
 	for _, item := range items {
 		if item.PlayerRefID > 0 {
 			out.byRefID[item.PlayerRefID] = item.ID
+			out.byRef[item.PlayerRefID] = item
 		}
 	}
 
@@ -499,6 +520,134 @@ func mapExternalStandingsToDomain(leagueID string, items []ExternalStanding, map
 			return out[i].Points > out[j].Points
 		}
 		return out[i].TeamID < out[j].TeamID
+	})
+
+	return out
+}
+
+func mapExternalTeamsToDomain(leagueID string, items []ExternalTeam, mappings teamMappings) []team.Team {
+	if len(items) == 0 {
+		return []team.Team{}
+	}
+
+	out := make([]team.Team, 0, len(items))
+	for _, item := range items {
+		if item.ExternalID <= 0 {
+			continue
+		}
+
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+
+		teamID := strings.TrimSpace(mappings.byRefID[item.ExternalID])
+		if teamID == "" {
+			teamID = buildTeamPublicID(leagueID, item.ExternalID)
+		}
+		short := normalizeTeamShort(item.Short, name)
+
+		out = append(out, team.Team{
+			ID:        teamID,
+			LeagueID:  leagueID,
+			Name:      name,
+			Short:     short,
+			ImageURL:  strings.TrimSpace(item.ImageURL),
+			TeamRefID: item.ExternalID,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+
+	return out
+}
+
+func mapExternalPlayersToDomain(
+	leagueID string,
+	items []ExternalPlayer,
+	teamMappings teamMappings,
+	playerMappings playerMappings,
+) []player.Player {
+	if len(items) == 0 {
+		return []player.Player{}
+	}
+
+	out := make([]player.Player, 0, len(items))
+	seen := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		if item.ExternalID <= 0 {
+			continue
+		}
+		if _, exists := seen[item.ExternalID]; exists {
+			continue
+		}
+		seen[item.ExternalID] = struct{}{}
+
+		existing := playerMappings.byRef[item.ExternalID]
+		playerID := strings.TrimSpace(playerMappings.byRefID[item.ExternalID])
+		if playerID == "" {
+			playerID = buildPlayerPublicID(leagueID, item.ExternalID)
+		}
+
+		teamID := resolveTeamPublicID(teamMappings, item.TeamExternalID, "")
+		if teamID == "" {
+			teamID = strings.TrimSpace(existing.TeamID)
+		}
+		if teamID == "" {
+			continue
+		}
+
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = strings.TrimSpace(existing.Name)
+		}
+		if name == "" {
+			name = fmt.Sprintf("Player %d", item.ExternalID)
+		}
+
+		pos := normalizeExternalPlayerPosition(item.Position)
+		if pos == "" {
+			pos = player.Position(strings.TrimSpace(string(existing.Position)))
+		}
+		if pos == "" {
+			pos = player.PositionMidfielder
+		}
+
+		price := item.Price
+		if price <= 0 {
+			price = existing.Price
+		}
+		if price <= 0 {
+			price = 50
+		}
+
+		imageURL := strings.TrimSpace(item.ImageURL)
+		if imageURL == "" {
+			imageURL = strings.TrimSpace(existing.ImageURL)
+		}
+
+		out = append(out, player.Player{
+			ID:          playerID,
+			LeagueID:    leagueID,
+			TeamID:      teamID,
+			Name:        name,
+			Position:    pos,
+			Price:       price,
+			ImageURL:    imageURL,
+			PlayerRefID: item.ExternalID,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
 	})
 
 	return out
@@ -691,6 +840,91 @@ func normalizeTeamName(value string) string {
 	}
 
 	return strings.Trim(builder.String(), "-")
+}
+
+func normalizeTeamShort(short, name string) string {
+	value := strings.TrimSpace(short)
+	if value == "" {
+		value = inferTeamShortFromName(name)
+	}
+	if len(value) < 2 {
+		value = strings.ToUpper(value)
+		if len(value) == 1 {
+			value += "X"
+		}
+	}
+	if len(value) > 10 {
+		value = value[:10]
+	}
+	return value
+}
+
+func inferTeamShortFromName(name string) string {
+	words := strings.Fields(strings.TrimSpace(name))
+	if len(words) == 0 {
+		return "TM"
+	}
+	if len(words) == 1 {
+		word := strings.ToUpper(words[0])
+		if len(word) >= 3 {
+			return word[:3]
+		}
+		if len(word) == 2 {
+			return word
+		}
+		return word + "X"
+	}
+	var out strings.Builder
+	for _, word := range words {
+		if len(out.String()) >= 4 {
+			break
+		}
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+		out.WriteByte(byte(strings.ToUpper(word)[0]))
+	}
+	short := out.String()
+	if len(short) < 2 {
+		return "TM"
+	}
+	return short
+}
+
+func normalizeExternalPlayerPosition(raw string) player.Position {
+	value := strings.ToUpper(strings.TrimSpace(raw))
+	switch value {
+	case string(player.PositionGoalkeeper):
+		return player.PositionGoalkeeper
+	case string(player.PositionDefender):
+		return player.PositionDefender
+	case string(player.PositionMidfielder):
+		return player.PositionMidfielder
+	case string(player.PositionForward):
+		return player.PositionForward
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "goalkeeper", "keeper", "goalie", "gk":
+		return player.PositionGoalkeeper
+	case "defender", "def", "centre-back", "center-back", "full-back", "wing-back":
+		return player.PositionDefender
+	case "midfielder", "mid", "winger", "attacking midfielder", "defensive midfielder":
+		return player.PositionMidfielder
+	case "forward", "fwd", "attacker", "striker":
+		return player.PositionForward
+	default:
+		return ""
+	}
+}
+
+func buildTeamPublicID(leagueID string, teamRefID int64) string {
+	return "sm-" + sanitizePublicIDSegment(leagueID) + "-team-" + fmt.Sprintf("%d", teamRefID)
+}
+
+func buildPlayerPublicID(leagueID string, playerRefID int64) string {
+	return "sm-" + sanitizePublicIDSegment(leagueID) + "-player-" + fmt.Sprintf("%d", playerRefID)
 }
 
 func buildFixturePublicID(leagueID string, fixtureRefID int64) string {

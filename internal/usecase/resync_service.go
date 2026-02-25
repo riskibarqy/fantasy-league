@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/panjf2000/ants/v2"
+	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
+	"github.com/riskibarqy/fantasy-league/internal/domain/team"
 )
 
 type ResyncInput struct {
@@ -87,6 +89,14 @@ type resyncLeagueState struct {
 	playerMappingsOnce sync.Once
 	playerMappingsErr  error
 	playerMappings     playerMappings
+}
+
+type teamResyncWriter interface {
+	UpsertTeams(ctx context.Context, items []team.Team) error
+}
+
+type playerResyncWriter interface {
+	UpsertPlayers(ctx context.Context, items []player.Player) error
 }
 
 func (s *SportDataSyncService) Resync(ctx context.Context, input ResyncInput) (ResyncResult, error) {
@@ -242,9 +252,23 @@ func (s *SportDataSyncService) runResyncTask(
 		}
 		return count, resyncStatusSuccess, ""
 	case resyncDataPlayers:
-		return 0, resyncStatusSkipped, "players sync is not implemented in this service yet"
+		count, err := syncResyncPlayers(ctx, state)
+		if err != nil {
+			return 0, resyncStatusFailed, err.Error()
+		}
+		if count == 0 {
+			return count, resyncStatusSkipped, "no players mapped from provider payload"
+		}
+		return count, resyncStatusSuccess, ""
 	case resyncDataTeam:
-		return 0, resyncStatusSkipped, "team sync is not implemented in this service yet"
+		count, err := syncResyncTeams(ctx, state)
+		if err != nil {
+			return 0, resyncStatusFailed, err.Error()
+		}
+		if count == 0 {
+			return count, resyncStatusSkipped, "no teams mapped from provider payload"
+		}
+		return count, resyncStatusSuccess, ""
 	default:
 		return 0, resyncStatusSkipped, "unsupported sync_data"
 	}
@@ -356,6 +380,84 @@ func syncResyncTeamFixtureStats(ctx context.Context, state *resyncLeagueState) (
 	}
 
 	return countTeamStatsMap(statsByFixture), nil
+}
+
+func syncResyncTeams(ctx context.Context, state *resyncLeagueState) (int, error) {
+	if state == nil || state.syncer == nil {
+		return 0, fmt.Errorf("sport data sync service is not configured")
+	}
+	writer, ok := state.syncer.teamRepo.(teamResyncWriter)
+	if !ok {
+		return 0, nil
+	}
+
+	bundle, err := state.loadBundle(ctx)
+	if err != nil {
+		return 0, err
+	}
+	existingMappings, err := state.syncer.loadTeamMappings(ctx, state.leagueID)
+	if err != nil {
+		return 0, err
+	}
+
+	teams := mapExternalTeamsToDomain(state.leagueID, bundle.Teams, existingMappings)
+	if len(teams) == 0 {
+		return 0, nil
+	}
+	for _, row := range teams {
+		if err := row.Validate(); err != nil {
+			return 0, fmt.Errorf("validate team id=%s external_team_id=%d: %w", row.ID, row.TeamRefID, err)
+		}
+	}
+	if err := writer.UpsertTeams(ctx, teams); err != nil {
+		return 0, fmt.Errorf("upsert teams league=%s: %w", state.leagueID, err)
+	}
+
+	return len(teams), nil
+}
+
+func syncResyncPlayers(ctx context.Context, state *resyncLeagueState) (int, error) {
+	if state == nil || state.syncer == nil {
+		return 0, fmt.Errorf("sport data sync service is not configured")
+	}
+	writer, ok := state.syncer.playerRepo.(playerResyncWriter)
+	if !ok {
+		return 0, nil
+	}
+
+	// Ensure referenced teams exist before player upsert to satisfy FK constraints.
+	if _, err := syncResyncTeams(ctx, state); err != nil {
+		return 0, err
+	}
+
+	bundle, err := state.loadBundle(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	teamMappings, err := state.syncer.loadTeamMappings(ctx, state.leagueID)
+	if err != nil {
+		return 0, err
+	}
+	playerMappings, err := state.syncer.loadPlayerMappings(ctx, state.leagueID)
+	if err != nil {
+		return 0, err
+	}
+
+	players := mapExternalPlayersToDomain(state.leagueID, bundle.Players, teamMappings, playerMappings)
+	if len(players) == 0 {
+		return 0, nil
+	}
+	for _, row := range players {
+		if err := row.Validate(); err != nil {
+			return 0, fmt.Errorf("validate player id=%s external_player_id=%d: %w", row.ID, row.PlayerRefID, err)
+		}
+	}
+	if err := writer.UpsertPlayers(ctx, players); err != nil {
+		return 0, fmt.Errorf("upsert players league=%s: %w", state.leagueID, err)
+	}
+
+	return len(players), nil
 }
 
 func (state *resyncLeagueState) loadBundle(ctx context.Context) (ExternalFixtureBundle, error) {

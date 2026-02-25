@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
@@ -76,4 +77,52 @@ func mapTeamRow(row teamTableModel) team.Team {
 		SecondaryColor: nullStringToString(row.SecondaryColor),
 		TeamRefID:      nullInt64ToInt64(row.TeamRefID),
 	}
+}
+
+func (r *TeamRepository) UpsertTeams(ctx context.Context, items []team.Team) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx upsert teams: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, item := range items {
+		insertModel := teamInsertModel{
+			PublicID:       strings.TrimSpace(item.ID),
+			LeagueID:       strings.TrimSpace(item.LeagueID),
+			Name:           strings.TrimSpace(item.Name),
+			Short:          strings.TrimSpace(item.Short),
+			TeamRefID:      nullableInt64(item.TeamRefID),
+			ImageURL:       strings.TrimSpace(item.ImageURL),
+			PrimaryColor:   nullableString(strings.TrimSpace(item.PrimaryColor)),
+			SecondaryColor: nullableString(strings.TrimSpace(item.SecondaryColor)),
+		}
+		query, args, err := qb.InsertModel("teams", insertModel, `ON CONFLICT (public_id)
+DO UPDATE SET
+    league_public_id = EXCLUDED.league_public_id,
+    name = EXCLUDED.name,
+    short = EXCLUDED.short,
+    external_team_id = EXCLUDED.external_team_id,
+    image_url = EXCLUDED.image_url,
+    primary_color = EXCLUDED.primary_color,
+    secondary_color = EXCLUDED.secondary_color,
+    deleted_at = NULL`)
+		if err != nil {
+			return fmt.Errorf("build upsert team query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("upsert team id=%s external_team_id=%d: %w", item.ID, item.TeamRefID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit upsert teams tx: %w", err)
+	}
+	return nil
 }

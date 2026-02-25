@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
@@ -57,4 +58,41 @@ func (r *PlayerRepository) GetByIDs(_ context.Context, leagueID string, playerID
 	}
 
 	return out, nil
+}
+
+func (r *PlayerRepository) UpsertPlayers(_ context.Context, items []player.Player) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, item := range items {
+		leagueID := strings.TrimSpace(item.LeagueID)
+		playerID := strings.TrimSpace(item.ID)
+		if leagueID == "" || playerID == "" {
+			continue
+		}
+
+		rows := r.playersByLeague[leagueID]
+		index := r.indexByLeague[leagueID]
+		if index == nil {
+			index = make(map[string]player.Player)
+		}
+
+		updated := false
+		for idx := range rows {
+			if rows[idx].ID == playerID {
+				rows[idx] = item
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			rows = append(rows, item)
+		}
+		index[playerID] = item
+
+		r.playersByLeague[leagueID] = rows
+		r.indexByLeague[leagueID] = index
+	}
+
+	return nil
 }
