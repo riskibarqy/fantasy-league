@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -250,20 +252,6 @@ func (r *PlayerStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureI
 		_ = tx.Rollback()
 	}()
 
-	clearQuery, clearArgs, err := qb.Update("player_fixture_stats").
-		SetExpr("deleted_at", "NOW()").
-		Where(
-			qb.Eq("fixture_public_id", fixtureID),
-			qb.IsNull("deleted_at"),
-		).
-		ToSQL()
-	if err != nil {
-		return fmt.Errorf("build clear player fixture stats query: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
-		return fmt.Errorf("clear player fixture stats: %w", err)
-	}
-
 	for _, stat := range stats {
 		insertModel := playerFixtureStatInsertModel{
 			FixtureID:         fixtureID,
@@ -303,8 +291,7 @@ DO UPDATE SET
     red_cards = EXCLUDED.red_cards,
     saves = EXCLUDED.saves,
     fantasy_points = EXCLUDED.fantasy_points,
-    advanced_stats = EXCLUDED.advanced_stats,
-    deleted_at = NULL`, conflictTarget, conflictWhere)
+    advanced_stats = EXCLUDED.advanced_stats`, conflictTarget, conflictWhere)
 
 		query, args, err := qb.InsertModel("player_fixture_stats", insertModel, suffix)
 		if err != nil {
@@ -330,23 +317,13 @@ func (r *PlayerStatsRepository) ReplaceFixtureEvents(ctx context.Context, fixtur
 		_ = tx.Rollback()
 	}()
 
-	clearQuery, clearArgs, err := qb.Update("fixture_events").
-		SetExpr("deleted_at", "NOW()").
-		Where(
-			qb.Eq("fixture_public_id", fixtureID),
-			qb.IsNull("deleted_at"),
-		).
-		ToSQL()
-	if err != nil {
-		return fmt.Errorf("build clear fixture events query: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
-		return fmt.Errorf("clear fixture events: %w", err)
-	}
-
 	for _, event := range events {
+		eventID := event.EventID
+		if eventID <= 0 {
+			eventID = syntheticFixtureEventID(fixtureID, event)
+		}
 		insertModel := fixtureEventInsertModel{
-			EventID:                nullableInt64(event.EventID),
+			EventID:                nullableInt64(eventID),
 			FixtureID:              fixtureID,
 			ExternalFixtureID:      nullableInt64(event.FixtureExternalID),
 			TeamID:                 nullableString(event.TeamID),
@@ -375,13 +352,12 @@ DO UPDATE SET
     detail = EXCLUDED.detail,
     minute = EXCLUDED.minute,
     extra_minute = EXCLUDED.extra_minute,
-    event_metadata = EXCLUDED.event_metadata,
-    deleted_at = NULL`)
+    event_metadata = EXCLUDED.event_metadata`)
 		if err != nil {
 			return fmt.Errorf("build upsert fixture event query: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return fmt.Errorf("upsert fixture event event_id=%d: %w", event.EventID, err)
+			return fmt.Errorf("upsert fixture event event_id=%d: %w", eventID, err)
 		}
 	}
 
@@ -539,6 +515,37 @@ func nullableString(value string) *string {
 	}
 	v := value
 	return &v
+}
+
+func syntheticFixtureEventID(fixtureID string, event playerstats.FixtureEvent) int64 {
+	hash := fnv.New64a()
+	writeHashPart(hash, fixtureID)
+	writeHashPart(hash, event.EventType)
+	writeHashPart(hash, event.Detail)
+	writeHashPart(hash, event.TeamID)
+	writeHashPart(hash, event.PlayerID)
+	writeHashPart(hash, event.AssistPlayerID)
+	writeHashPart(hash, fmt.Sprintf("%d|%d|%d|%d|%d|%d",
+		event.Minute,
+		event.ExtraMinute,
+		event.FixtureExternalID,
+		event.TeamExternalID,
+		event.PlayerExternalID,
+		event.AssistPlayerExternalID,
+	))
+	sum := hash.Sum64() & ((1 << 63) - 1)
+	if sum == 0 {
+		sum = 1
+	}
+	return int64(sum)
+}
+
+func writeHashPart(hash hash.Hash64, value string) {
+	if hash == nil {
+		return
+	}
+	_, _ = hash.Write([]byte(strings.TrimSpace(value)))
+	_, _ = hash.Write([]byte{0})
 }
 
 func encodeJSONMap(value map[string]any) string {

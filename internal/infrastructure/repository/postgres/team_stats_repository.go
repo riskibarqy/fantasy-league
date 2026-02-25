@@ -187,20 +187,6 @@ func (r *TeamStatsRepository) UpsertFixtureStats(ctx context.Context, fixtureID 
 		_ = tx.Rollback()
 	}()
 
-	clearQuery, clearArgs, err := qb.Update("team_fixture_stats").
-		SetExpr("deleted_at", "NOW()").
-		Where(
-			qb.Eq("fixture_public_id", fixtureID),
-			qb.IsNull("deleted_at"),
-		).
-		ToSQL()
-	if err != nil {
-		return fmt.Errorf("build clear team fixture stats query: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
-		return fmt.Errorf("clear team fixture stats: %w", err)
-	}
-
 	for _, stat := range stats {
 		insertModel := teamFixtureStatInsertModel{
 			FixtureID:         fixtureID,
@@ -233,8 +219,7 @@ DO UPDATE SET
     corners = EXCLUDED.corners,
     fouls = EXCLUDED.fouls,
     offsides = EXCLUDED.offsides,
-    advanced_stats = EXCLUDED.advanced_stats,
-    deleted_at = NULL`, conflictTarget, conflictWhere)
+    advanced_stats = EXCLUDED.advanced_stats`, conflictTarget, conflictWhere)
 
 		query, args, err := qb.InsertModel("team_fixture_stats", insertModel, suffix)
 		if err != nil {
