@@ -12,6 +12,8 @@ func NewRouter(
 	swaggerEnabled bool,
 	corsAllowedOrigins []string,
 	internalJobToken string,
+	traceRequestBody bool,
+	traceRequestBodyMaxBytes int,
 ) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -23,7 +25,9 @@ func NewRouter(
 	registerAuthorizedRoutes(mux, handler, verifier)
 	registerInternalJobRoutes(mux, handler, internalJobToken)
 
-	return RequestTracing(RequestLogging(logger, CORS(corsAllowedOrigins, recoverPanic(logger, mux))))
+	stack := RequestLogging(logger, CORS(corsAllowedOrigins, recoverPanic(logger, mux)))
+	stack = RequestBodyTracing(traceRequestBody, traceRequestBodyMaxBytes, stack)
+	return RequestTracing(stack)
 }
 
 func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {

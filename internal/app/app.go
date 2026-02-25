@@ -173,7 +173,16 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		onboardingSvc,
 		logger,
 	)
-	router := httpapi.NewRouter(handler, anubisClient, logger, cfg.SwaggerEnabled, cfg.CORSAllowedOrigins, cfg.InternalJobToken)
+	router := httpapi.NewRouter(
+		handler,
+		anubisClient,
+		logger,
+		cfg.SwaggerEnabled,
+		cfg.CORSAllowedOrigins,
+		cfg.InternalJobToken,
+		cfg.UptraceCaptureRequestBody,
+		cfg.UptraceRequestBodyMaxBytes,
+	)
 
 	return router, db.Close, nil
 }

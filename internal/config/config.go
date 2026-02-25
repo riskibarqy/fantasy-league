@@ -35,6 +35,8 @@ type Config struct {
 	AnubisCircuitHalfOpenMaxReq int
 	UptraceEnabled              bool
 	UptraceDSN                  string
+	UptraceCaptureRequestBody   bool
+	UptraceRequestBodyMaxBytes  int
 	PyroscopeEnabled            bool
 	PyroscopeServerAddress      string
 	PyroscopeAppName            string
@@ -85,6 +87,17 @@ func Load() (Config, error) {
 	uptraceDSN := strings.TrimSpace(getEnv("UPTRACE_DSN", ""))
 	if uptraceEnabled && uptraceDSN == "" {
 		return Config{}, fmt.Errorf("UPTRACE_DSN is required when UPTRACE_ENABLED=true")
+	}
+	uptraceCaptureRequestBody, err := strconv.ParseBool(getEnv("UPTRACE_CAPTURE_REQUEST_BODY", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse UPTRACE_CAPTURE_REQUEST_BODY: %w", err)
+	}
+	uptraceRequestBodyMaxBytes, err := getEnvAsInt("UPTRACE_REQUEST_BODY_MAX_BYTES", 8192)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse UPTRACE_REQUEST_BODY_MAX_BYTES: %w", err)
+	}
+	if uptraceRequestBodyMaxBytes <= 0 {
+		return Config{}, fmt.Errorf("UPTRACE_REQUEST_BODY_MAX_BYTES must be > 0")
 	}
 
 	pprofEnabled, err := strconv.ParseBool(getEnv("PPROF_ENABLED", "false"))
@@ -216,6 +229,8 @@ func Load() (Config, error) {
 		AnubisAdminKey:             getEnv("ANUBIS_ADMIN_KEY", ""),
 		UptraceEnabled:             uptraceEnabled,
 		UptraceDSN:                 uptraceDSN,
+		UptraceCaptureRequestBody:  uptraceCaptureRequestBody,
+		UptraceRequestBodyMaxBytes: uptraceRequestBodyMaxBytes,
 		PyroscopeEnabled:           pyroscopeEnabled,
 		PyroscopeServerAddress:     pyroscopeServerAddress,
 		PyroscopeAuthToken:         strings.TrimSpace(getEnv("PYROSCOPE_AUTH_TOKEN", "")),

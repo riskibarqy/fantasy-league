@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/user"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -105,6 +108,42 @@ func RequestTracing(next http.Handler) http.Handler {
 	)
 }
 
+func RequestBodyTracing(enabled bool, maxBytes int, next http.Handler) http.Handler {
+	if !enabled {
+		return next
+	}
+	if maxBytes <= 0 {
+		maxBytes = 8192
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		capturedBody := newBodyCaptureReadCloser(r.Body, maxBytes)
+		r.Body = capturedBody
+		next.ServeHTTP(w, r)
+
+		span := trace.SpanFromContext(r.Context())
+		if !span.IsRecording() {
+			return
+		}
+
+		bodyText := strings.TrimSpace(capturedBody.String())
+		if bodyText == "" {
+			return
+		}
+
+		span.SetAttributes(
+			attribute.String("http.request.body", bodyText),
+			attribute.Bool("http.request.body_truncated", capturedBody.Truncated()),
+			attribute.Int("http.request.body_max_bytes", maxBytes),
+		)
+	})
+}
+
 func shouldTraceRequest(path string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(path))
 	switch normalized {
@@ -113,6 +152,61 @@ func shouldTraceRequest(path string) bool {
 	default:
 		return true
 	}
+}
+
+type bodyCaptureReadCloser struct {
+	inner     io.ReadCloser
+	maxBytes  int
+	captured  bytes.Buffer
+	truncated bool
+}
+
+func newBodyCaptureReadCloser(inner io.ReadCloser, maxBytes int) *bodyCaptureReadCloser {
+	return &bodyCaptureReadCloser{
+		inner:    inner,
+		maxBytes: maxBytes,
+	}
+}
+
+func (c *bodyCaptureReadCloser) Read(p []byte) (int, error) {
+	n, err := c.inner.Read(p)
+	if n > 0 {
+		c.capture(p[:n])
+	}
+	return n, err
+}
+
+func (c *bodyCaptureReadCloser) Close() error {
+	return c.inner.Close()
+}
+
+func (c *bodyCaptureReadCloser) String() string {
+	return c.captured.String()
+}
+
+func (c *bodyCaptureReadCloser) Truncated() bool {
+	return c.truncated
+}
+
+func (c *bodyCaptureReadCloser) capture(chunk []byte) {
+	if c.maxBytes <= 0 {
+		c.truncated = true
+		return
+	}
+
+	remaining := c.maxBytes - c.captured.Len()
+	if remaining <= 0 {
+		c.truncated = true
+		return
+	}
+
+	if len(chunk) > remaining {
+		_, _ = c.captured.Write(chunk[:remaining])
+		c.truncated = true
+		return
+	}
+
+	_, _ = c.captured.Write(chunk)
 }
 
 func CORS(allowedOrigins []string, next http.Handler) http.Handler {
