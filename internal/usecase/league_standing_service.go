@@ -43,6 +43,10 @@ func (s *LeagueStandingService) ListByLeague(ctx context.Context, leagueID strin
 		return nil, fmt.Errorf("%w: league=%s", ErrNotFound, leagueID)
 	}
 
+	if live && !s.hasAnyLiveFixture(ctx, leagueID) {
+		live = false
+	}
+
 	items, err := s.standingRepo.ListByLeague(ctx, leagueID, live)
 	if err != nil {
 		return nil, fmt.Errorf("list league standings: %w", err)
@@ -57,6 +61,23 @@ func (s *LeagueStandingService) ListByLeague(ctx context.Context, leagueID strin
 	}
 
 	return s.rerankStandingsByHeadToHead(ctx, leagueID, fallbackItems), nil
+}
+
+func (s *LeagueStandingService) hasAnyLiveFixture(ctx context.Context, leagueID string) bool {
+	if s.fixtureRepo == nil {
+		return false
+	}
+
+	fixtures, err := s.fixtureRepo.ListByLeague(ctx, leagueID)
+	if err != nil {
+		return false
+	}
+	for _, match := range fixtures {
+		if fixture.IsLiveStatus(match.Status) {
+			return true
+		}
+	}
+	return false
 }
 
 type standingsAggregate struct {

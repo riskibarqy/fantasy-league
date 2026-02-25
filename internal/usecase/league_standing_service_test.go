@@ -332,6 +332,55 @@ func TestLeagueStandingService_ListByLeague_HeadToHeadThenGoalDifference(t *test
 	}
 }
 
+func TestLeagueStandingService_ListByLeague_LiveFallbackToFinalWhenNoLiveFixtures(t *testing.T) {
+	t.Parallel()
+
+	const leagueID = "idn-liga-1-2025"
+	repo := &stubLeagueRepository{
+		byID: map[string]league.League{
+			leagueID: {ID: leagueID, Name: "Liga 1"},
+		},
+	}
+
+	standingsRepo := &stubLeagueStandingRepository{
+		rows: map[string][]leaguestanding.Standing{
+			standingsKey(leagueID, true):  {},
+			standingsKey(leagueID, false): {{LeagueID: leagueID, TeamID: "team-final", Position: 1, Points: 50}},
+		},
+	}
+
+	notLive := fixture.StatusScheduled
+	home := 0
+	away := 0
+	fixturesRepo := &stubFixtureRepository{
+		byLeague: map[string][]fixture.Fixture{
+			leagueID: {
+				{
+					ID:         "f1",
+					LeagueID:   leagueID,
+					HomeTeamID: "team-final",
+					AwayTeamID: "team-other",
+					HomeScore:  &home,
+					AwayScore:  &away,
+					Status:     notLive,
+				},
+			},
+		},
+	}
+
+	service := NewLeagueStandingService(repo, standingsRepo, fixturesRepo)
+	got, err := service.ListByLeague(context.Background(), leagueID, true)
+	if err != nil {
+		t.Fatalf("ListByLeague error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected fallback to final standings rows, got=%d", len(got))
+	}
+	if got[0].TeamID != "team-final" || got[0].Position != 1 {
+		t.Fatalf("unexpected fallback row: %+v", got[0])
+	}
+}
+
 type stubLeagueRepository struct {
 	byID map[string]league.League
 }
