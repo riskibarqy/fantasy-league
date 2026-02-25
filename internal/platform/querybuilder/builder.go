@@ -317,6 +317,46 @@ func (b *UpdateBuilder) ToSQL() (string, []any, error) {
 	return buf.String(), args, nil
 }
 
+type DeleteBuilder struct {
+	table  string
+	where  []Condition
+	suffix string
+}
+
+func DeleteFrom(table string) *DeleteBuilder {
+	return &DeleteBuilder{table: table}
+}
+
+func (b *DeleteBuilder) Where(conditions ...Condition) *DeleteBuilder {
+	b.where = append(b.where, conditions...)
+	return b
+}
+
+func (b *DeleteBuilder) Suffix(sql string) *DeleteBuilder {
+	b.suffix = strings.TrimSpace(sql)
+	return b
+}
+
+func (b *DeleteBuilder) ToSQL() (string, []any, error) {
+	if strings.TrimSpace(b.table) == "" {
+		return "", nil, fmt.Errorf("delete table is required")
+	}
+
+	var buf strings.Builder
+	buf.WriteString("DELETE FROM ")
+	buf.WriteString(b.table)
+
+	args := make([]any, 0, len(b.where))
+	argIndex := 1
+	appendWhereClause(&buf, b.where, &args, &argIndex)
+	if b.suffix != "" {
+		buf.WriteString(" ")
+		buf.WriteString(rewritePlaceholders(b.suffix, nil, &args, &argIndex))
+	}
+
+	return buf.String(), args, nil
+}
+
 func appendWhereClause(buf *strings.Builder, conditions []Condition, args *[]any, argIndex *int) {
 	if len(conditions) == 0 {
 		return

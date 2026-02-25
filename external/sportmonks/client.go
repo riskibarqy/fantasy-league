@@ -544,6 +544,15 @@ func parseStandings(items []map[string]any) []usecase.ExternalStanding {
 			applyStandingDetail(&row, detail)
 		}
 
+		totalMatches := row.Won + row.Draw + row.Lost
+		if row.Played <= 0 && totalMatches > 0 {
+			row.Played = totalMatches
+		}
+		if row.Played > 0 && totalMatches > 0 && row.Played != totalMatches {
+			// Provider details sometimes contain home/away aggregates; keep table internally consistent.
+			row.Played = totalMatches
+		}
+
 		row.Form = parseStandingForm(item["form"])
 		if row.GoalDifference == 0 && (row.GoalsFor != 0 || row.GoalsAgainst != 0) {
 			row.GoalDifference = row.GoalsFor - row.GoalsAgainst
@@ -779,15 +788,24 @@ func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 	if row == nil {
 		return
 	}
+	if !isStandingDetailAggregate(detail) {
+		return
+	}
 
 	typeInfo := relationDataMap(detail["type"])
-	candidate := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+	candidate := normalizeStandingDetailType(firstNonEmpty(
 		getString(typeInfo, "developer_name"),
 		getString(typeInfo, "code"),
 		getString(typeInfo, "name"),
-	)))
+	))
 	if candidate == "" {
-		candidate = strings.ToLower(strings.TrimSpace(getString(detail, "type")))
+		candidate = normalizeStandingDetailType(getString(detail, "type"))
+	}
+	if candidate == "" {
+		return
+	}
+	if strings.Contains(candidate, "percentage") || strings.Contains(candidate, "percent") || strings.Contains(candidate, "rate") {
+		return
 	}
 
 	value := detail["value"]
@@ -795,24 +813,69 @@ func applyStandingDetail(row *usecase.ExternalStanding, detail map[string]any) {
 		value = detail["total"]
 	}
 	numeric := extractStandingValue(value)
+	if numeric == 0 {
+		return
+	}
 
 	switch {
-	case strings.Contains(candidate, "won"), strings.Contains(candidate, "win"):
+	case candidate == "won" || candidate == "wins" || candidate == "win" || candidate == "matches won" || candidate == "games won":
 		row.Won = pickNonZero(row.Won, numeric)
-	case strings.Contains(candidate, "draw"):
+	case candidate == "draw" || candidate == "draws" || candidate == "matches drawn" || candidate == "games drawn":
 		row.Draw = pickNonZero(row.Draw, numeric)
-	case strings.Contains(candidate, "lost"), strings.Contains(candidate, "loss"):
+	case candidate == "lost" || candidate == "loss" || candidate == "losses" || candidate == "defeats" || candidate == "matches lost" || candidate == "games lost":
 		row.Lost = pickNonZero(row.Lost, numeric)
-	case strings.Contains(candidate, "goalsfor"), strings.Contains(candidate, "goals_for"), strings.Contains(candidate, "goals for"):
+	case candidate == "goals for" || candidate == "goals scored" || candidate == "scored goals":
 		row.GoalsFor = pickNonZero(row.GoalsFor, numeric)
-	case strings.Contains(candidate, "goalsagainst"), strings.Contains(candidate, "goals_against"), strings.Contains(candidate, "goals against"):
+	case candidate == "goals against" || candidate == "goals conceded":
 		row.GoalsAgainst = pickNonZero(row.GoalsAgainst, numeric)
-	case strings.Contains(candidate, "goaldifference"), strings.Contains(candidate, "goal_difference"), strings.Contains(candidate, "goal difference"):
+	case candidate == "goal difference" || candidate == "goaldifference":
 		row.GoalDifference = pickNonZero(row.GoalDifference, numeric)
-	case strings.Contains(candidate, "point"):
+	case candidate == "points" || candidate == "point":
 		row.Points = pickNonZero(row.Points, numeric)
-	case strings.Contains(candidate, "played"), strings.Contains(candidate, "match"), strings.Contains(candidate, "games"):
+	case candidate == "played" || candidate == "matches played" || candidate == "games played" || candidate == "matches" || candidate == "games":
 		row.Played = pickNonZero(row.Played, numeric)
+	}
+}
+
+func normalizeStandingDetailType(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	raw = strings.ReplaceAll(raw, "_", " ")
+	raw = strings.ReplaceAll(raw, "-", " ")
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func isStandingDetailAggregate(detail map[string]any) bool {
+	if detail == nil {
+		return false
+	}
+
+	location := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		getString(detail, "location"),
+		getString(detail, "scope"),
+		getString(detail, "segment"),
+	)))
+	if location == "" {
+		locationInfo := relationDataMap(detail["location"])
+		location = strings.ToLower(strings.TrimSpace(firstNonEmpty(
+			getString(locationInfo, "developer_name"),
+			getString(locationInfo, "code"),
+			getString(locationInfo, "name"),
+		)))
+	}
+	if location == "" {
+		return true
+	}
+
+	switch location {
+	case "all", "overall", "total", "aggregate", "full":
+		return true
+	case "home", "away":
+		return false
+	default:
+		return true
 	}
 }
 

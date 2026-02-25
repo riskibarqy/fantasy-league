@@ -68,25 +68,18 @@ func (r *LeagueStandingRepository) ReplaceByLeague(ctx context.Context, leagueID
 		_ = tx.Rollback()
 	}()
 
-	clearQuery, clearArgs, err := qb.Update("league_standings").
-		SetExpr("deleted_at", "NOW()").
-		Where(
-			qb.Eq("league_public_id", leagueID),
-			qb.Eq("is_live", live),
-			qb.IsNull("deleted_at"),
-		).
-		ToSQL()
-	if err != nil {
-		return fmt.Errorf("build clear league standings query: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, clearQuery, clearArgs...); err != nil {
-		return fmt.Errorf("clear league standings: %w", err)
-	}
+	incomingTeamIDs := make(map[string]struct{}, len(standings))
 
 	for _, item := range standings {
+		teamID := strings.TrimSpace(item.TeamID)
+		if teamID == "" {
+			continue
+		}
+		incomingTeamIDs[teamID] = struct{}{}
+
 		insertModel := leagueStandingInsertModel{
 			LeagueID:        leagueID,
-			TeamID:          item.TeamID,
+			TeamID:          teamID,
 			IsLive:          live,
 			Position:        item.Position,
 			Played:          item.Played,
@@ -118,12 +111,84 @@ DO UPDATE SET
 			return fmt.Errorf("build upsert league standing query: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-			return fmt.Errorf("upsert league standing team=%s live=%t: %w", item.TeamID, live, err)
+			return fmt.Errorf("upsert league standing team=%s live=%t: %w", teamID, live, err)
 		}
+	}
+
+	activeTeamIDs, err := listActiveLeagueStandingTeamIDs(ctx, tx, leagueID, live)
+	if err != nil {
+		return err
+	}
+
+	for _, teamID := range activeTeamIDs {
+		if _, keep := incomingTeamIDs[teamID]; keep {
+			continue
+		}
+
+		deleteQuery, deleteArgs, err := qb.DeleteFrom("league_standings").
+			Where(
+				qb.Eq("league_public_id", leagueID),
+				qb.Eq("team_public_id", teamID),
+				qb.Eq("is_live", live),
+				qb.IsNull("deleted_at"),
+			).
+			ToSQL()
+		if err != nil {
+			return fmt.Errorf("build delete stale standing query: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, deleteQuery, deleteArgs...); err != nil {
+			return fmt.Errorf("delete stale standing team=%s live=%t: %w", teamID, live, err)
+		}
+	}
+
+	cleanupQuery, cleanupArgs, err := qb.DeleteFrom("league_standings").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("is_live", live),
+			qb.Expr("deleted_at IS NOT NULL"),
+		).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build cleanup deleted standings query: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, cleanupQuery, cleanupArgs...); err != nil {
+		return fmt.Errorf("cleanup deleted standings league=%s live=%t: %w", leagueID, live, err)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit replace league standings tx: %w", err)
 	}
 	return nil
+}
+
+func listActiveLeagueStandingTeamIDs(ctx context.Context, tx *sqlx.Tx, leagueID string, live bool) ([]string, error) {
+	query, args, err := qb.Select("team_public_id").From("league_standings").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("is_live", live),
+			qb.IsNull("deleted_at"),
+		).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list active standing team ids query: %w", err)
+	}
+
+	type teamIDRow struct {
+		TeamID string `db:"team_public_id"`
+	}
+
+	var rows []teamIDRow
+	if err := tx.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list active standing team ids: %w", err)
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		teamID := strings.TrimSpace(row.TeamID)
+		if teamID == "" {
+			continue
+		}
+		out = append(out, teamID)
+	}
+	return out, nil
 }

@@ -59,3 +59,20 @@ func TestUpdateBuilder(t *testing.T) {
 		t.Fatalf("unexpected args: %+v", args)
 	}
 }
+
+func TestDeleteBuilder(t *testing.T) {
+	query, args, err := DeleteFrom("users").
+		Where(Eq("tenant_id", "t1"), Eq("id", "u1")).
+		ToSQL()
+	if err != nil {
+		t.Fatalf("build delete query: %v", err)
+	}
+
+	wantQuery := "DELETE FROM users WHERE tenant_id = $1 AND id = $2"
+	if query != wantQuery {
+		t.Fatalf("unexpected query:\nwant: %s\ngot:  %s", wantQuery, query)
+	}
+	if len(args) != 2 || args[0] != "t1" || args[1] != "u1" {
+		t.Fatalf("unexpected args: %+v", args)
+	}
+}
