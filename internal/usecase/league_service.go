@@ -22,6 +22,9 @@ func NewLeagueService(leagueRepo league.Repository, teamRepo team.Repository) *L
 }
 
 func (s *LeagueService) ListLeagues(ctx context.Context) ([]league.League, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.LeagueService.ListLeagues")
+	defer span.End()
+
 	leagues, err := s.leagueRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list leagues: %w", err)
@@ -31,6 +34,9 @@ func (s *LeagueService) ListLeagues(ctx context.Context) ([]league.League, error
 }
 
 func (s *LeagueService) ListTeamsByLeague(ctx context.Context, leagueID string) ([]team.Team, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.LeagueService.ListTeamsByLeague")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	if leagueID == "" {
 		return nil, fmt.Errorf("%w: league id is required", ErrInvalidInput)

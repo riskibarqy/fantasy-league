@@ -30,6 +30,9 @@ func NewLeagueStandingService(
 }
 
 func (s *LeagueStandingService) ListByLeague(ctx context.Context, leagueID string, live bool) ([]leaguestanding.Standing, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.LeagueStandingService.ListByLeague")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	if leagueID == "" {
 		return nil, fmt.Errorf("%w: league id is required", ErrInvalidInput)

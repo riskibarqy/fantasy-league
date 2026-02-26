@@ -44,6 +44,9 @@ func NewScoringService(
 }
 
 func (s *ScoringService) EnsureLeagueUpToDate(ctx context.Context, leagueID string) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.ScoringService.EnsureLeagueUpToDate")
+	defer span.End()
+
 	fixtures, err := s.fixtureRepo.ListByLeague(ctx, leagueID)
 	if err != nil {
 		return fmt.Errorf("list fixtures by league for scoring: %w", err)
@@ -89,6 +92,9 @@ func (s *ScoringService) EnsureLeagueUpToDate(ctx context.Context, leagueID stri
 }
 
 func (s *ScoringService) GetUserLeagueSummary(ctx context.Context, leagueID, userID string) (int, int, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.ScoringService.GetUserLeagueSummary")
+	defer span.End()
+
 	if err := s.EnsureLeagueUpToDate(ctx, leagueID); err != nil {
 		return 0, 0, err
 	}

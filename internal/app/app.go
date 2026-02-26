@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/riskibarqy/fantasy-league/external/anubis"
 	"github.com/riskibarqy/fantasy-league/external/jobqueue"
@@ -33,6 +32,8 @@ import (
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	"github.com/uptrace/opentelemetry-go-extra/otelsqlx"
 )
 
 type fixtureIngestionWriter interface {
@@ -40,7 +41,11 @@ type fixtureIngestionWriter interface {
 }
 
 func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, func() error, error) {
-	db, err := sqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary))
+	db, err := otelsqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary),
+		otelsql.WithDBSystem("postgresql"),
+		otelsql.WithDBName(dbNameFromURL(cfg.DBURL)),
+		otelsql.WithQueryFormatter(formatDBQueryForTrace),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open postgres connection: %w", err)
 	}

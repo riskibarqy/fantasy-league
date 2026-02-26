@@ -100,6 +100,9 @@ type playerResyncWriter interface {
 }
 
 func (s *SportDataSyncService) Resync(ctx context.Context, input ResyncInput) (ResyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.Resync")
+	defer span.End()
+
 	if !s.cfg.Enabled {
 		return ResyncResult{}, fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
 	}

@@ -162,6 +162,9 @@ func NewSportDataSyncService(
 }
 
 func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.League) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.SyncSchedule")
+	defer span.End()
+
 	if !s.cfg.Enabled {
 		s.logger.WarnContext(ctx, "skip schedule sync: sport data sync is disabled", "league_id", lg.ID)
 		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
@@ -240,6 +243,9 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 }
 
 func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.SyncLive")
+	defer span.End()
+
 	if !s.cfg.Enabled {
 		s.logger.WarnContext(ctx, "skip live sync: sport data sync is disabled", "league_id", lg.ID)
 		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)

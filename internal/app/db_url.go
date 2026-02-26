@@ -1,6 +1,9 @@
 package app
 
-import "net/url"
+import (
+	"net/url"
+	"strings"
+)
 
 func normalizeDBURL(raw string, disablePreparedBinaryResult bool) string {
 	if !disablePreparedBinaryResult {
@@ -19,4 +22,28 @@ func normalizeDBURL(raw string, disablePreparedBinaryResult bool) string {
 	}
 
 	return parsed.String()
+}
+
+func dbNameFromURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	parsed, err := url.Parse(trimmed)
+	if err == nil && parsed != nil && parsed.Scheme != "" {
+		name := strings.TrimSpace(strings.TrimPrefix(parsed.Path, "/"))
+		if name != "" {
+			return name
+		}
+	}
+
+	for _, token := range strings.Fields(trimmed) {
+		if !strings.HasPrefix(token, "dbname=") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(token, "dbname="))
+		name = strings.Trim(name, `"'`)
+		if name != "" {
+			return name
+		}
+	}
+
+	return ""
 }

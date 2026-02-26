@@ -13,6 +13,8 @@ require (
 	github.com/panjf2000/ants/v2 v2.11.5
 	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.11.1
+	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2
+	github.com/uptrace/opentelemetry-go-extra/otelsqlx v0.3.2
 	github.com/uptrace/uptrace-go v1.39.0
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fasthttp v1.69.0

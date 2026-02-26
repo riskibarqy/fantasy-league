@@ -89,6 +89,9 @@ func (s *SquadService) SetScoringUpdater(scorer leagueScoringUpdater) {
 }
 
 func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) (fantasy.Squad, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SquadService.UpsertSquad")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.Name = strings.TrimSpace(input.Name)
@@ -202,6 +205,9 @@ func (s *SquadService) UpsertSquad(ctx context.Context, input UpsertSquadInput) 
 }
 
 func (s *SquadService) PickSquad(ctx context.Context, input PickSquadInput) (fantasy.Squad, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SquadService.PickSquad")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.SquadName = strings.TrimSpace(input.SquadName)
@@ -238,6 +244,9 @@ func (s *SquadService) PickSquad(ctx context.Context, input PickSquadInput) (fan
 }
 
 func (s *SquadService) AddPlayerToSquad(ctx context.Context, input AddPlayerToSquadInput) (fantasy.Squad, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SquadService.AddPlayerToSquad")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.SquadName = strings.TrimSpace(input.SquadName)
@@ -349,6 +358,9 @@ func (s *SquadService) AddPlayerToSquad(ctx context.Context, input AddPlayerToSq
 }
 
 func (s *SquadService) GetUserSquad(ctx context.Context, userID, leagueID string) (fantasy.Squad, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SquadService.GetUserSquad")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	leagueID = strings.TrimSpace(leagueID)
 	if userID == "" || leagueID == "" {

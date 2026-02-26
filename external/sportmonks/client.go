@@ -20,6 +20,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -69,6 +70,7 @@ func NewClient(cfg ClientConfig) *Client {
 	if httpClient.Timeout <= 0 {
 		httpClient.Timeout = 20 * time.Second
 	}
+	httpClient = withTracingTransport(httpClient)
 
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	if baseURL == "" {
@@ -85,6 +87,19 @@ func NewClient(cfg ClientConfig) *Client {
 		breaker:        resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
 		circuitEnabled: breakerCfg.Enabled,
 	}
+}
+
+func withTracingTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	copyClient := *client
+	baseTransport := copyClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	copyClient.Transport = otelhttp.NewTransport(baseTransport)
+	return &copyClient
 }
 
 func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64) (usecase.ExternalFixtureBundle, error) {

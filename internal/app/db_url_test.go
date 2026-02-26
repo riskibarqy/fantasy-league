@@ -30,3 +30,27 @@ func TestNormalizeDBURL(t *testing.T) {
 		}
 	})
 }
+
+func TestDBNameFromURL(t *testing.T) {
+	t.Run("url style", func(t *testing.T) {
+		got := dbNameFromURL("postgres://user:pass@localhost:5432/fantasy_league?sslmode=disable")
+		if got != "fantasy_league" {
+			t.Fatalf("unexpected db name: %q", got)
+		}
+	})
+
+	t.Run("dsn style", func(t *testing.T) {
+		got := dbNameFromURL("host=localhost user=postgres dbname=fantasy_league sslmode=disable")
+		if got != "fantasy_league" {
+			t.Fatalf("unexpected db name: %q", got)
+		}
+	})
+}
+
+func TestFormatDBQueryForTrace(t *testing.T) {
+	got := formatDBQueryForTrace(" SELECT   *\nFROM fixtures \t WHERE league_public_id = $1 ")
+	want := "SELECT * FROM fixtures WHERE league_public_id = $1"
+	if got != want {
+		t.Fatalf("unexpected formatted query: %q", got)
+	}
+}

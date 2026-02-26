@@ -34,6 +34,9 @@ func NewTeamService(
 }
 
 func (s *TeamService) GetTeamDetailsByLeague(ctx context.Context, leagueID, teamID string) (TeamDetails, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.TeamService.GetTeamDetailsByLeague")
+	defer span.End()
+
 	teamItem, err := s.getTeam(ctx, leagueID, teamID)
 	if err != nil {
 		return TeamDetails{}, err
@@ -51,6 +54,9 @@ func (s *TeamService) GetTeamDetailsByLeague(ctx context.Context, leagueID, team
 }
 
 func (s *TeamService) GetTeamStatsByLeague(ctx context.Context, leagueID, teamID string) (teamstats.SeasonStats, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.TeamService.GetTeamStatsByLeague")
+	defer span.End()
+
 	if _, err := s.getTeam(ctx, leagueID, teamID); err != nil {
 		return teamstats.SeasonStats{}, err
 	}
@@ -64,6 +70,9 @@ func (s *TeamService) GetTeamStatsByLeague(ctx context.Context, leagueID, teamID
 }
 
 func (s *TeamService) GetTeamHistoryByLeague(ctx context.Context, leagueID, teamID string, limit int) ([]teamstats.MatchHistory, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.TeamService.GetTeamHistoryByLeague")
+	defer span.End()
+
 	if _, err := s.getTeam(ctx, leagueID, teamID); err != nil {
 		return nil, err
 	}
@@ -77,6 +86,9 @@ func (s *TeamService) GetTeamHistoryByLeague(ctx context.Context, leagueID, team
 }
 
 func (s *TeamService) ListFixtureStatsByLeague(ctx context.Context, leagueID, fixtureID string) ([]teamstats.FixtureStat, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.TeamService.ListFixtureStatsByLeague")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	fixtureID = strings.TrimSpace(fixtureID)
 	if leagueID == "" {

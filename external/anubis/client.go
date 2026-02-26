@@ -15,6 +15,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var errAnubisTransient = crerr.New("anubis transient failure")
@@ -44,6 +45,7 @@ func NewClient(
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
+	httpClient = withTracingTransport(httpClient)
 
 	breakerCfg = resilience.NormalizeCircuitBreakerConfig(breakerCfg)
 
@@ -56,6 +58,19 @@ func NewClient(
 		breaker:        resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
 		circuitEnabled: breakerCfg.Enabled,
 	}
+}
+
+func withTracingTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	copyClient := *client
+	baseTransport := copyClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	copyClient.Transport = otelhttp.NewTransport(baseTransport)
+	return &copyClient
 }
 
 func (c *Client) VerifyAccessToken(ctx context.Context, token string) (user.Principal, error) {

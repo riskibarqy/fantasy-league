@@ -16,6 +16,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/valyala/bytebufferpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -55,9 +56,9 @@ func NewQStashPublisher(cfg QStashPublisherConfig, logger *logging.Logger) *QSta
 	breakerCfg := resilience.NormalizeCircuitBreakerConfig(cfg.CircuitBreaker)
 
 	return &QStashPublisher{
-		client: &http.Client{
+		client: withTracingTransport(&http.Client{
 			Timeout: timeout,
-		},
+		}),
 		baseURL:          strings.TrimRight(cfg.BaseURL, "/"),
 		token:            strings.TrimSpace(cfg.Token),
 		targetBaseURL:    strings.TrimRight(strings.TrimSpace(cfg.TargetBaseURL), "/"),
@@ -67,6 +68,19 @@ func NewQStashPublisher(cfg QStashPublisherConfig, logger *logging.Logger) *QSta
 		breaker:          resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
 		circuitEnabled:   breakerCfg.Enabled,
 	}
+}
+
+func withTracingTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	copyClient := *client
+	baseTransport := copyClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	copyClient.Transport = otelhttp.NewTransport(baseTransport)
+	return &copyClient
 }
 
 func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any, delay time.Duration, deduplicationID string) error {

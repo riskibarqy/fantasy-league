@@ -64,6 +64,9 @@ func NewCustomLeagueService(
 }
 
 func (s *CustomLeagueService) CreateGroup(ctx context.Context, input CreateCustomLeagueInput) (customleague.Group, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.CreateGroup")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.Name = strings.TrimSpace(input.Name)
@@ -125,6 +128,9 @@ func (s *CustomLeagueService) CreateGroup(ctx context.Context, input CreateCusto
 }
 
 func (s *CustomLeagueService) ListMyGroups(ctx context.Context, userID string) ([]customleague.GroupWithMyStanding, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.ListMyGroups")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return nil, fmt.Errorf("%w: user id is required", ErrInvalidInput)
@@ -198,6 +204,9 @@ func (s *CustomLeagueService) ListMyGroups(ctx context.Context, userID string) (
 }
 
 func (s *CustomLeagueService) GetGroup(ctx context.Context, userID, groupID string) (customleague.Group, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.GetGroup")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	groupID = strings.TrimSpace(groupID)
 	if userID == "" {
@@ -227,6 +236,9 @@ func (s *CustomLeagueService) GetGroup(ctx context.Context, userID, groupID stri
 }
 
 func (s *CustomLeagueService) UpdateGroupName(ctx context.Context, input UpdateCustomLeagueInput) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.UpdateGroupName")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.GroupID = strings.TrimSpace(input.GroupID)
 	input.Name = strings.TrimSpace(input.Name)
@@ -254,6 +266,9 @@ func (s *CustomLeagueService) UpdateGroupName(ctx context.Context, input UpdateC
 }
 
 func (s *CustomLeagueService) DeleteGroup(ctx context.Context, userID, groupID string) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.DeleteGroup")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	groupID = strings.TrimSpace(groupID)
 	if userID == "" {
@@ -274,6 +289,9 @@ func (s *CustomLeagueService) DeleteGroup(ctx context.Context, userID, groupID s
 }
 
 func (s *CustomLeagueService) JoinByInviteCode(ctx context.Context, input JoinCustomLeagueByInviteInput) (customleague.Group, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.JoinByInviteCode")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.InviteCode = strings.ToUpper(strings.TrimSpace(input.InviteCode))
 	if input.UserID == "" {
@@ -307,6 +325,9 @@ func (s *CustomLeagueService) JoinByInviteCode(ctx context.Context, input JoinCu
 }
 
 func (s *CustomLeagueService) GetStandings(ctx context.Context, userID, groupID string) ([]customleague.Standing, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.GetStandings")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	groupID = strings.TrimSpace(groupID)
 	if userID == "" {
@@ -357,6 +378,9 @@ func (s *CustomLeagueService) GetStandings(ctx context.Context, userID, groupID 
 }
 
 func (s *CustomLeagueService) EnsureDefaultMemberships(ctx context.Context, userID, leagueID, squadID, countryCode string) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.CustomLeagueService.EnsureDefaultMemberships")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	leagueID = strings.TrimSpace(leagueID)
 	squadID = strings.TrimSpace(squadID)

@@ -106,18 +106,30 @@ func NewJobOrchestratorService(
 }
 
 func (s *JobOrchestratorService) RunScheduleSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunScheduleSync")
+	defer span.End()
+
 	return s.run(ctx, "schedule", input, false, true)
 }
 
 func (s *JobOrchestratorService) RunLiveSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunLiveSync")
+	defer span.End()
+
 	return s.run(ctx, "live", input, true, true)
 }
 
 func (s *JobOrchestratorService) RunScheduleSyncDirect(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunScheduleSyncDirect")
+	defer span.End()
+
 	return s.run(ctx, "schedule-direct", input, false, false)
 }
 
 func (s *JobOrchestratorService) Bootstrap(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.Bootstrap")
+	defer span.End()
+
 	leagues, err := s.pickLeagues(ctx, input.LeagueID)
 	if err != nil {
 		return JobSyncResult{}, err
