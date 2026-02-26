@@ -16,9 +16,39 @@ func TestLoad_UptraceRequiresDSNWhenEnabled(t *testing.T) {
 	t.Setenv("APP_ENV", EnvDev)
 	t.Setenv("UPTRACE_ENABLED", "true")
 	t.Setenv("UPTRACE_DSN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "")
 
 	if _, err := Load(); err == nil {
 		t.Fatalf("expected error when UPTRACE_ENABLED=true without UPTRACE_DSN")
+	}
+}
+
+func TestLoad_UptraceUsesDSNFromOTLPHeaders(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "true")
+	t.Setenv("UPTRACE_DSN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer token,uptrace-dsn=https://example@api.uptrace.dev?grpc=4317")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UptraceDSN != "https://example@api.uptrace.dev?grpc=4317" {
+		t.Fatalf("unexpected UptraceDSN from OTLP headers: %q", cfg.UptraceDSN)
+	}
+}
+
+func TestLoad_UptraceLogsToggle(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("UPTRACE_LOGS_ENABLED", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UptraceLogsEnabled {
+		t.Fatalf("expected UptraceLogsEnabled=false")
 	}
 }
 

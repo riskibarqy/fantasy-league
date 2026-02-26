@@ -16,11 +16,13 @@ func InitUptrace(cfg config.Config, logger *logging.Logger) (func(context.Contex
 	}
 
 	if !cfg.UptraceEnabled {
+		logging.SetMirror(nil)
 		logger.Info("uptrace disabled", "reason", "UPTRACE_ENABLED=false")
 		return func(context.Context) error { return nil }, nil
 	}
 
 	if strings.TrimSpace(cfg.UptraceDSN) == "" {
+		logging.SetMirror(nil)
 		logger.Info("uptrace disabled", "reason", "UPTRACE_DSN empty")
 		return func(context.Context) error { return nil }, nil
 	}
@@ -30,13 +32,23 @@ func InitUptrace(cfg config.Config, logger *logging.Logger) (func(context.Contex
 		uptrace.WithServiceName(cfg.ServiceName),
 		uptrace.WithServiceVersion(cfg.ServiceVersion),
 		uptrace.WithDeploymentEnvironment(cfg.AppEnv),
+		uptrace.WithLoggingEnabled(cfg.UptraceLogsEnabled),
 	)
+	if cfg.UptraceLogsEnabled {
+		logging.SetMirror(newUptraceLogMirror(cfg.ServiceVersion))
+	} else {
+		logging.SetMirror(nil)
+	}
 
 	logger.Info("uptrace enabled",
 		"service_name", cfg.ServiceName,
 		"service_version", cfg.ServiceVersion,
 		"environment", cfg.AppEnv,
+		"logs_enabled", cfg.UptraceLogsEnabled,
 	)
 
-	return uptrace.Shutdown, nil
+	return func(ctx context.Context) error {
+		logging.SetMirror(nil)
+		return uptrace.Shutdown(ctx)
+	}, nil
 }

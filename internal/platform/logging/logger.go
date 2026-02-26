@@ -25,7 +25,14 @@ type Logger struct {
 	closed atomic.Bool
 }
 
+type MirrorFunc func(ctx context.Context, level Level, msg string, args ...any)
+
+type mirror struct {
+	fn MirrorFunc
+}
+
 var defaultLogger atomic.Pointer[Logger]
+var logMirror atomic.Pointer[mirror]
 
 func init() {
 	defaultLogger.Store(NewNop())
@@ -82,6 +89,14 @@ func SetDefault(logger *Logger) {
 		logger = NewNop()
 	}
 	defaultLogger.Store(logger)
+}
+
+func SetMirror(fn MirrorFunc) {
+	if fn == nil {
+		logMirror.Store(nil)
+		return
+	}
+	logMirror.Store(&mirror{fn: fn})
 }
 
 func (l *Logger) Zap() *zap.Logger {
@@ -148,6 +163,7 @@ func (l *Logger) log(level zapcore.Level, msg string, args ...any) {
 	if logger == nil {
 		logger = Default()
 	}
+	emitMirror(context.Background(), level, msg, args...)
 	fields := zapFields(args)
 	if ce := logger.zap.Check(level, msg); ce != nil {
 		ce.Write(fields...)
@@ -159,6 +175,7 @@ func (l *Logger) logContext(ctx context.Context, level zapcore.Level, msg string
 	if logger == nil {
 		logger = Default()
 	}
+	emitMirror(ctx, level, msg, args...)
 	fields := make([]zap.Field, 0, len(args)/2+2)
 	fields = append(fields, zapFields(args)...)
 	fields = append(fields, traceFields(ctx)...)
@@ -209,3 +226,14 @@ func zapFields(args []any) []zap.Field {
 	return out
 }
 
+func emitMirror(ctx context.Context, level zapcore.Level, msg string, args ...any) {
+	m := logMirror.Load()
+	if m == nil || m.fn == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	safeArgs := append(make([]any, 0, len(args)), args...)
+	m.fn(ctx, level, msg, safeArgs...)
+}

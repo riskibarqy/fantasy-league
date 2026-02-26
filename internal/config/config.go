@@ -36,6 +36,7 @@ type Config struct {
 	AnubisCircuitHalfOpenMaxReq     int
 	UptraceEnabled                  bool
 	UptraceDSN                      string
+	UptraceLogsEnabled              bool
 	UptraceCaptureRequestBody       bool
 	UptraceRequestBodyMaxBytes      int
 	BetterStackEnabled              bool
@@ -99,8 +100,15 @@ func Load() (Config, error) {
 	}
 
 	uptraceDSN := strings.TrimSpace(getEnv("UPTRACE_DSN", ""))
+	if uptraceDSN == "" {
+		uptraceDSN = parseUptraceDSNFromOTLPHeaders(getEnv("OTEL_EXPORTER_OTLP_HEADERS", ""))
+	}
 	if uptraceEnabled && uptraceDSN == "" {
 		return Config{}, fmt.Errorf("UPTRACE_DSN is required when UPTRACE_ENABLED=true")
+	}
+	uptraceLogsEnabled, err := strconv.ParseBool(getEnv("UPTRACE_LOGS_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse UPTRACE_LOGS_ENABLED: %w", err)
 	}
 	uptraceCaptureRequestBody, err := strconv.ParseBool(getEnv("UPTRACE_CAPTURE_REQUEST_BODY", "true"))
 	if err != nil {
@@ -310,6 +318,7 @@ func Load() (Config, error) {
 		AnubisAdminKey:                  getEnv("ANUBIS_ADMIN_KEY", ""),
 		UptraceEnabled:                  uptraceEnabled,
 		UptraceDSN:                      uptraceDSN,
+		UptraceLogsEnabled:              uptraceLogsEnabled,
 		UptraceCaptureRequestBody:       uptraceCaptureRequestBody,
 		UptraceRequestBodyMaxBytes:      uptraceRequestBodyMaxBytes,
 		BetterStackEnabled:              betterStackEnabled,
@@ -513,6 +522,26 @@ func parseIDMap(raw string) (map[string]int64, error) {
 		out[key] = value
 	}
 	return out, nil
+}
+
+func parseUptraceDSNFromOTLPHeaders(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+
+	items := strings.Split(raw, ",")
+	for _, item := range items {
+		parts := strings.SplitN(strings.TrimSpace(item), "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(parts[0]), "uptrace-dsn") {
+			value := strings.TrimSpace(parts[1])
+			return strings.Trim(value, "\"'")
+		}
+	}
+
+	return ""
 }
 
 const (
