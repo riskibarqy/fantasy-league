@@ -1,14 +1,17 @@
 package httpapi
 
 import (
-	"log/slog"
+	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
+
+	"go.opentelemetry.io/otel/codes"
 )
 
 func NewRouter(
 	handler *Handler,
 	verifier TokenVerifier,
-	logger *slog.Logger,
+	logger *logging.Logger,
 	swaggerEnabled bool,
 	corsAllowedOrigins []string,
 	internalJobToken string,
@@ -16,7 +19,7 @@ func NewRouter(
 	traceRequestBodyMaxBytes int,
 ) http.Handler {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	mux := http.NewServeMux()
@@ -30,14 +33,21 @@ func NewRouter(
 	return RequestTracing(stack)
 }
 
-func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {
+func recoverPanic(logger *logging.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := startSpan(r.Context(), "httpapi.recoverPanic")
 		defer span.End()
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				logger.ErrorContext(ctx, "panic recovered", "panic", rec)
+				panicErr := fmt.Errorf("panic recovered: %v", rec)
+				span.RecordError(panicErr)
+				span.SetStatus(codes.Error, "panic")
+				logger.ErrorContext(ctx, "panic recovered",
+					"event", "panic_recovered",
+					"error_code", "panic",
+					"panic", rec,
+				)
 				writeInternalError(ctx, w)
 			}
 		}()

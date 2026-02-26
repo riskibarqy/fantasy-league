@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"regexp"
 	"strings"
 	"time"
@@ -60,7 +60,7 @@ type JobOrchestratorService struct {
 	queue        JobQueue
 	dispatchRepo jobscheduler.Repository
 	cfg          JobOrchestratorConfig
-	logger       *slog.Logger
+	logger       *logging.Logger
 	now          func() time.Time
 }
 
@@ -74,13 +74,13 @@ func NewJobOrchestratorService(
 	queue JobQueue,
 	dispatchRepo jobscheduler.Repository,
 	cfg JobOrchestratorConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *JobOrchestratorService {
 	if queue == nil {
 		queue = NewNoopJobQueue()
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 	if cfg.ScheduleInterval <= 0 {
 		cfg.ScheduleInterval = 15 * time.Minute

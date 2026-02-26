@@ -3,8 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"testing"
 	"time"
 
@@ -43,7 +42,7 @@ func TestSquadService_UpsertSquad_CreateThenUpdate(t *testing.T) {
 	playerRepo := memory.NewPlayerRepository(memory.SeedPlayers())
 	squadRepo := memory.NewSquadRepository()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	service := NewSquadService(
 		leagueRepo,
 		playerRepo,
@@ -126,7 +125,7 @@ func TestSquadService_UpsertSquad_InvalidInput(t *testing.T) {
 		squadRepo,
 		fantasy.DefaultRules(),
 		staticIDGenerator{id: "squad-001"},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logging.NewNop(),
 	)
 
 	_, err := service.UpsertSquad(t.Context(), UpsertSquadInput{
@@ -161,7 +160,7 @@ func TestSquadService_PickSquad_DefaultAndReuseName(t *testing.T) {
 		squadRepo,
 		fantasy.DefaultRules(),
 		staticIDGenerator{id: "squad-001"},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logging.NewNop(),
 	)
 
 	playerIDs := []string{
@@ -218,7 +217,7 @@ func TestSquadService_AddPlayerToSquad(t *testing.T) {
 		squadRepo,
 		fantasy.DefaultRules(),
 		staticIDGenerator{id: "squad-001"},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logging.NewNop(),
 	)
 
 	squad, err := service.AddPlayerToSquad(t.Context(), AddPlayerToSquadInput{
@@ -277,7 +276,7 @@ func TestSquadService_UpsertSquad_AutoJoinDefaultLeagues(t *testing.T) {
 		squadRepo,
 		fantasy.DefaultRules(),
 		staticIDGenerator{id: "squad-001"},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		logging.NewNop(),
 	)
 
 	joiner := &recordingDefaultLeagueJoiner{}

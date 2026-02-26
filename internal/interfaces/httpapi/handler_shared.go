@@ -3,8 +3,8 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"hash/fnv"
-	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -41,7 +41,7 @@ type Handler struct {
 	customLeagueService   *usecase.CustomLeagueService
 	onboardingService     *usecase.OnboardingService
 	jobDispatchRepo       jobscheduler.Repository
-	logger                *slog.Logger
+	logger                *logging.Logger
 	validator             *validator.Validate
 }
 
@@ -61,10 +61,10 @@ func NewHandler(
 	customLeagueService *usecase.CustomLeagueService,
 	onboardingService *usecase.OnboardingService,
 	jobDispatchRepo jobscheduler.Repository,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *Handler {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	return &Handler{

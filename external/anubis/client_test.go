@@ -3,14 +3,13 @@ package anubis
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
 	sonic "github.com/bytedance/sonic"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -51,7 +50,7 @@ func TestClientVerifyAccessToken_SendsAdminKeyAndParsesResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	client := NewClient(
 		srv.Client(),
 		srv.URL,
@@ -83,7 +82,7 @@ func TestClientVerifyAccessToken_InactiveToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	client := NewClient(
 		srv.Client(),
 		srv.URL,
@@ -108,7 +107,7 @@ func TestClientVerifyAccessToken_ForbiddenMappedToDependencyUnavailable(t *testi
 	}))
 	defer srv.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	client := NewClient(
 		srv.Client(),
 		srv.URL,
@@ -138,7 +137,7 @@ func TestClientVerifyAccessToken_UsesInMemoryCache(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	client := NewClient(
 		srv.Client(),
 		srv.URL,

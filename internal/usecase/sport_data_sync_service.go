@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"sort"
 	"strings"
 	"time"
@@ -136,7 +136,7 @@ type SportDataSyncService struct {
 	playerRepo player.Repository
 	ingestion  *IngestionService
 	cfg        SportDataSyncConfig
-	logger     *slog.Logger
+	logger     *logging.Logger
 }
 
 func NewSportDataSyncService(
@@ -145,10 +145,10 @@ func NewSportDataSyncService(
 	playerRepo player.Repository,
 	ingestion *IngestionService,
 	cfg SportDataSyncConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *SportDataSyncService {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	return &SportDataSyncService{

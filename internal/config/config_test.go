@@ -22,6 +22,47 @@ func TestLoad_UptraceRequiresDSNWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLoad_BetterStackRequiresEndpointWhenEnabled(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("BETTERSTACK_ENABLED", "true")
+	t.Setenv("BETTERSTACK_ENDPOINT", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected error when BETTERSTACK_ENABLED=true without BETTERSTACK_ENDPOINT")
+	}
+}
+
+func TestLoad_BetterStackConfigParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("BETTERSTACK_ENABLED", "true")
+	t.Setenv("BETTERSTACK_ENDPOINT", "s1765114.eu-fsn-3.betterstackdata.com")
+	t.Setenv("BETTERSTACK_TOKEN", "token-123")
+	t.Setenv("BETTERSTACK_TIMEOUT", "4s")
+	t.Setenv("BETTERSTACK_MIN_LEVEL", "warn")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.BetterStackEnabled {
+		t.Fatalf("expected BetterStackEnabled=true")
+	}
+	if cfg.BetterStackEndpoint != "s1765114.eu-fsn-3.betterstackdata.com" {
+		t.Fatalf("unexpected BetterStackEndpoint: %q", cfg.BetterStackEndpoint)
+	}
+	if cfg.BetterStackToken != "token-123" {
+		t.Fatalf("unexpected BetterStackToken")
+	}
+	if cfg.BetterStackTimeout != 4*time.Second {
+		t.Fatalf("unexpected BetterStackTimeout: %s", cfg.BetterStackTimeout)
+	}
+	if cfg.BetterStackMinLevel.String() != "warn" {
+		t.Fatalf("unexpected BetterStackMinLevel: %s", cfg.BetterStackMinLevel.String())
+	}
+}
+
 func TestLoad_DefaultsByEnv(t *testing.T) {
 	t.Run("prod disables swagger by default", func(t *testing.T) {
 		t.Setenv("APP_ENV", EnvProd)

@@ -2,11 +2,12 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 )
 
 // Config stores runtime configuration for the service.
@@ -37,6 +38,11 @@ type Config struct {
 	UptraceDSN                      string
 	UptraceCaptureRequestBody       bool
 	UptraceRequestBodyMaxBytes      int
+	BetterStackEnabled              bool
+	BetterStackEndpoint             string
+	BetterStackToken                string
+	BetterStackTimeout              time.Duration
+	BetterStackMinLevel             logging.Level
 	PyroscopeEnabled                bool
 	PyroscopeServerAddress          string
 	PyroscopeAppName                string
@@ -68,7 +74,7 @@ type Config struct {
 	JobScheduleInterval             time.Duration
 	JobLiveInterval                 time.Duration
 	JobPreKickoffLead               time.Duration
-	LogLevel                        slog.Level
+	LogLevel                        logging.Level
 }
 
 func Load() (Config, error) {
@@ -107,6 +113,23 @@ func Load() (Config, error) {
 	if uptraceRequestBodyMaxBytes <= 0 {
 		return Config{}, fmt.Errorf("UPTRACE_REQUEST_BODY_MAX_BYTES must be > 0")
 	}
+
+	betterStackEnabled, err := strconv.ParseBool(getEnv("BETTERSTACK_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse BETTERSTACK_ENABLED: %w", err)
+	}
+	betterStackEndpoint := strings.TrimSpace(getEnv("BETTERSTACK_ENDPOINT", ""))
+	if betterStackEnabled && betterStackEndpoint == "" {
+		return Config{}, fmt.Errorf("BETTERSTACK_ENDPOINT is required when BETTERSTACK_ENABLED=true")
+	}
+	betterStackTimeout, err := time.ParseDuration(getEnv("BETTERSTACK_TIMEOUT", "3s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse BETTERSTACK_TIMEOUT: %w", err)
+	}
+	if betterStackTimeout <= 0 {
+		return Config{}, fmt.Errorf("BETTERSTACK_TIMEOUT must be > 0")
+	}
+	betterStackMinLevel := parseLogLevel(getEnv("BETTERSTACK_MIN_LEVEL", "error"))
 
 	pprofEnabled, err := strconv.ParseBool(getEnv("PPROF_ENABLED", "false"))
 	if err != nil {
@@ -289,6 +312,11 @@ func Load() (Config, error) {
 		UptraceDSN:                      uptraceDSN,
 		UptraceCaptureRequestBody:       uptraceCaptureRequestBody,
 		UptraceRequestBodyMaxBytes:      uptraceRequestBodyMaxBytes,
+		BetterStackEnabled:              betterStackEnabled,
+		BetterStackEndpoint:             betterStackEndpoint,
+		BetterStackToken:                strings.TrimSpace(getEnv("BETTERSTACK_TOKEN", "")),
+		BetterStackTimeout:              betterStackTimeout,
+		BetterStackMinLevel:             betterStackMinLevel,
 		PyroscopeEnabled:                pyroscopeEnabled,
 		PyroscopeServerAddress:          pyroscopeServerAddress,
 		PyroscopeAuthToken:              strings.TrimSpace(getEnv("PYROSCOPE_AUTH_TOKEN", "")),
@@ -406,16 +434,16 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-func parseLogLevel(v string) slog.Level {
+func parseLogLevel(v string) logging.Level {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "debug":
-		return slog.LevelDebug
+		return logging.LevelDebug
 	case "warn", "warning":
-		return slog.LevelWarn
+		return logging.LevelWarn
 	case "error":
-		return slog.LevelError
+		return logging.LevelError
 	default:
-		return slog.LevelInfo
+		return logging.LevelInfo
 	}
 }
 

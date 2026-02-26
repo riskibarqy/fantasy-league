@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"strings"
 	"time"
 
@@ -52,7 +52,7 @@ type SquadService struct {
 	scorer     leagueScoringUpdater
 	rules      fantasy.Rules
 	idGen      idgen.Generator
-	logger     *slog.Logger
+	logger     *logging.Logger
 	joiner     DefaultLeagueJoiner
 	now        func() time.Time
 }
@@ -63,10 +63,10 @@ func NewSquadService(
 	squadRepo fantasy.Repository,
 	rules fantasy.Rules,
 	idGen idgen.Generator,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *SquadService {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	return &SquadService{

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	sonic "github.com/bytedance/sonic"
 	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/domain/user"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -23,7 +23,7 @@ type Client struct {
 	httpClient     *http.Client
 	introspectURL  string
 	adminKey       string
-	logger         *slog.Logger
+	logger         *logging.Logger
 	cache          *inMemoryPrincipalCache
 	breaker        *resilience.CircuitBreaker
 	circuitEnabled bool
@@ -35,10 +35,10 @@ func NewClient(
 	baseURL, introspectPath string,
 	adminKey string,
 	breakerCfg resilience.CircuitBreakerConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *Client {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	if httpClient == nil {

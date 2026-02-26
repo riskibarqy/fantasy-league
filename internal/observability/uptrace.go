@@ -2,7 +2,7 @@ package observability
 
 import (
 	"context"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"strings"
 
 	"github.com/riskibarqy/fantasy-league/internal/config"
@@ -10,9 +10,9 @@ import (
 )
 
 // InitUptrace configures global OpenTelemetry providers for Uptrace.
-func InitUptrace(cfg config.Config, logger *slog.Logger) (func(context.Context) error, error) {
+func InitUptrace(cfg config.Config, logger *logging.Logger) (func(context.Context) error, error) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	if !cfg.UptraceEnabled {

@@ -6,7 +6,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -18,6 +17,7 @@ import (
 	sonic "github.com/bytedance/sonic"
 	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
 )
@@ -41,7 +41,7 @@ type ClientConfig struct {
 	Token          string
 	Timeout        time.Duration
 	MaxRetries     int
-	Logger         *slog.Logger
+	Logger         *logging.Logger
 	CircuitBreaker resilience.CircuitBreakerConfig
 }
 
@@ -50,7 +50,7 @@ type Client struct {
 	baseURL        string
 	token          string
 	maxRetries     int
-	logger         *slog.Logger
+	logger         *logging.Logger
 	breaker        *resilience.CircuitBreaker
 	circuitEnabled bool
 	flight         resilience.SingleFlight
@@ -59,7 +59,7 @@ type Client struct {
 func NewClient(cfg ClientConfig) *Client {
 	logger := cfg.Logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	httpClient := cfg.HTTPClient

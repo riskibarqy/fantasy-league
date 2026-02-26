@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
 	"time"
 
@@ -39,7 +39,7 @@ type fixtureIngestionWriter interface {
 	UpsertFixtures(ctx context.Context, items []fixturedomain.Fixture) error
 }
 
-func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func() error, error) {
+func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, func() error, error) {
 	db, err := sqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open postgres connection: %w", err)
