@@ -3,10 +3,11 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"hash/fnv"
-	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -23,6 +24,11 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+)
+
+const (
+	defaultSyncRunRetention  = 24 * time.Hour
+	defaultSyncRunMaxEntries = 200
 )
 
 type Handler struct {
@@ -42,8 +48,12 @@ type Handler struct {
 	onboardingService     *usecase.OnboardingService
 	topScoreService       *usecase.TopScoreService
 	jobDispatchRepo       jobscheduler.Repository
-	logger                *slog.Logger
+	logger                *logging.Logger
 	validator             *validator.Validate
+	syncRunsMu            sync.RWMutex
+	syncRuns              map[string]syncRunRecord
+	syncRunMaxEntries     int
+	syncRunRetention      time.Duration
 }
 
 func NewHandler(
@@ -63,10 +73,10 @@ func NewHandler(
 	onboardingService *usecase.OnboardingService,
 	jobDispatchRepo jobscheduler.Repository,
 	topScoreService *usecase.TopScoreService,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *Handler {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	return &Handler{
@@ -88,6 +98,9 @@ func NewHandler(
 		topScoreService:       topScoreService,
 		logger:                logger,
 		validator:             validator.New(),
+		syncRuns:              make(map[string]syncRunRecord),
+		syncRunMaxEntries:     defaultSyncRunMaxEntries,
+		syncRunRetention:      defaultSyncRunRetention,
 	}
 }
 func (h *Handler) validateRequest(ctx context.Context, payload any) error {

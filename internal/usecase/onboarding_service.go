@@ -78,6 +78,9 @@ func NewOnboardingService(
 }
 
 func (s *OnboardingService) SaveFavoriteClub(ctx context.Context, input SaveFavoriteClubInput) (onboarding.Profile, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.OnboardingService.SaveFavoriteClub")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.TeamID = strings.TrimSpace(input.TeamID)
@@ -113,6 +116,9 @@ func (s *OnboardingService) SaveFavoriteClub(ctx context.Context, input SaveFavo
 }
 
 func (s *OnboardingService) Complete(ctx context.Context, input CompleteOnboardingInput) (onboarding.Profile, fantasy.Squad, lineup.Lineup, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.OnboardingService.Complete")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.SquadName = strings.TrimSpace(input.SquadName)

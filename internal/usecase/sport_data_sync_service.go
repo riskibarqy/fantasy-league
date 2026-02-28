@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/riskibarqy/fantasy-league/internal/domain/topscorers"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/player"
 	"github.com/riskibarqy/fantasy-league/internal/domain/playerstats"
 	"github.com/riskibarqy/fantasy-league/internal/domain/rawdata"
+	"github.com/riskibarqy/fantasy-league/internal/domain/statvalue"
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 )
@@ -24,6 +25,9 @@ type SportDataSyncProvider interface {
 	FetchFixturesBySeason(ctx context.Context, seasonID int64) ([]ExternalFixture, []rawdata.Payload, error)
 	FetchStandingsBySeason(ctx context.Context, seasonID int64) ([]ExternalStanding, []rawdata.Payload, error)
 	FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int64) ([]ExternalStanding, []rawdata.Payload, error)
+	FetchStatisticTypes(ctx context.Context) ([]ExternalStatType, []rawdata.Payload, error)
+	FetchTeamStatisticsBySeason(ctx context.Context, seasonID int64) ([]ExternalTeamStatValue, []rawdata.Payload, error)
+	FetchPlayerStatisticsBySeason(ctx context.Context, seasonID int64) ([]ExternalPlayerStatValue, []rawdata.Payload, error)
 	FetchTopScorersBySeasonID(ctx context.Context, seasonID, page, typeId int) ([]ExternalTopScorers, bool, error)
 }
 
@@ -118,13 +122,20 @@ type ExternalPlayerFixtureStat struct {
 	FixtureExternalID int64
 	PlayerExternalID  int64
 	TeamExternalID    int64
+	Position          string
 	MinutesPlayed     int
 	Goals             int
 	Assists           int
 	CleanSheet        bool
+	GoalsConceded     int
+	OwnGoals          int
+	PenaltiesSaved    int
+	PenaltiesMissed   int
 	YellowCards       int
 	RedCards          int
 	Saves             int
+	BPS               int
+	BonusPoints       int
 	FantasyPoints     int
 	AdvancedStats     map[string]any
 }
@@ -142,6 +153,47 @@ type ExternalFixtureEvent struct {
 	Metadata               map[string]any
 }
 
+type ExternalStatType struct {
+	ExternalTypeID int64
+	Name           string
+	DeveloperName  string
+	Code           string
+	ModelType      string
+	StatGroup      string
+	Metadata       map[string]any
+}
+
+type ExternalTeamStatValue struct {
+	SeasonRefID        int64
+	TeamExternalID     int64
+	FixtureExternalID  int64
+	StatTypeExternalID int64
+	StatTypeName       string
+	StatKey            string
+	Scope              string
+	ValueNum           *float64
+	ValueText          string
+	ValueJSON          map[string]any
+	SourceUpdatedAt    *time.Time
+	Metadata           map[string]any
+}
+
+type ExternalPlayerStatValue struct {
+	SeasonRefID        int64
+	PlayerExternalID   int64
+	TeamExternalID     int64
+	FixtureExternalID  int64
+	StatTypeExternalID int64
+	StatTypeName       string
+	StatKey            string
+	Scope              string
+	ValueNum           *float64
+	ValueText          string
+	ValueJSON          map[string]any
+	SourceUpdatedAt    *time.Time
+	Metadata           map[string]any
+}
+
 type SportDataSyncConfig struct {
 	Enabled          bool
 	SeasonIDByLeague map[string]int64
@@ -153,9 +205,10 @@ type SportDataSyncService struct {
 	provider   SportDataSyncProvider
 	teamRepo   team.Repository
 	playerRepo player.Repository
+	statRepo   statvalue.Repository
 	ingestion  *IngestionService
 	cfg        SportDataSyncConfig
-	logger     *slog.Logger
+	logger     *logging.Logger
 }
 
 func NewSportDataSyncService(
@@ -165,10 +218,10 @@ func NewSportDataSyncService(
 	topScoreRepo topscorers.Repository,
 	ingestion *IngestionService,
 	cfg SportDataSyncConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *SportDataSyncService {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	return &SportDataSyncService{
@@ -182,7 +235,14 @@ func NewSportDataSyncService(
 	}
 }
 
+func (s *SportDataSyncService) SetStatValueRepository(repo statvalue.Repository) {
+	s.statRepo = repo
+}
+
 func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.League) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.SyncSchedule")
+	defer span.End()
+
 	if !s.cfg.Enabled {
 		s.logger.WarnContext(ctx, "skip schedule sync: sport data sync is disabled", "league_id", lg.ID)
 		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
@@ -261,6 +321,9 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 }
 
 func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.SyncLive")
+	defer span.End()
+
 	if !s.cfg.Enabled {
 		s.logger.WarnContext(ctx, "skip live sync: sport data sync is disabled", "league_id", lg.ID)
 		return fmt.Errorf("%w: sport data sync is disabled (SPORTMONKS_ENABLED=false)", ErrDependencyUnavailable)
@@ -864,6 +927,152 @@ func mapExternalFixtureEventsByFixture(
 	return out
 }
 
+func mapExternalStatTypesToDomain(items []ExternalStatType) []statvalue.Type {
+	if len(items) == 0 {
+		return nil
+	}
+
+	out := make([]statvalue.Type, 0, len(items))
+	seen := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		if item.ExternalTypeID <= 0 {
+			continue
+		}
+		if _, ok := seen[item.ExternalTypeID]; ok {
+			continue
+		}
+		seen[item.ExternalTypeID] = struct{}{}
+
+		out = append(out, statvalue.Type{
+			ExternalTypeID: item.ExternalTypeID,
+			Name:           strings.TrimSpace(item.Name),
+			DeveloperName:  strings.TrimSpace(item.DeveloperName),
+			Code:           strings.TrimSpace(item.Code),
+			ModelType:      strings.TrimSpace(item.ModelType),
+			StatGroup:      strings.TrimSpace(item.StatGroup),
+			Metadata:       copyMap(item.Metadata),
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].ExternalTypeID < out[j].ExternalTypeID
+	})
+	return out
+}
+
+func mapExternalTeamStatisticsToDomain(
+	leagueID string,
+	items []ExternalTeamStatValue,
+	teamMappings teamMappings,
+) []statvalue.TeamValue {
+	if len(items) == 0 {
+		return nil
+	}
+
+	out := make([]statvalue.TeamValue, 0, len(items))
+	for _, item := range items {
+		if item.SeasonRefID <= 0 || item.StatTypeExternalID <= 0 {
+			continue
+		}
+		teamID := resolveTeamPublicID(teamMappings, item.TeamExternalID, "")
+		fixtureID := ""
+		if item.FixtureExternalID > 0 {
+			fixtureID = buildFixturePublicID(leagueID, item.FixtureExternalID)
+		}
+		statKey := strings.TrimSpace(item.StatKey)
+		if statKey == "" {
+			statKey = strings.TrimSpace(item.StatTypeName)
+		}
+		if statKey == "" {
+			statKey = fmt.Sprintf("type-%d", item.StatTypeExternalID)
+		}
+
+		out = append(out, statvalue.TeamValue{
+			LeagueID:           leagueID,
+			SeasonRefID:        item.SeasonRefID,
+			TeamID:             teamID,
+			ExternalTeamID:     item.TeamExternalID,
+			FixtureID:          fixtureID,
+			ExternalFixtureID:  item.FixtureExternalID,
+			StatTypeExternalID: item.StatTypeExternalID,
+			StatKey:            statKey,
+			Scope:              normalizeStatScope(item.Scope),
+			ValueNum:           cloneFloatPtr(item.ValueNum),
+			ValueText:          strings.TrimSpace(item.ValueText),
+			ValueJSON:          copyMap(item.ValueJSON),
+			SourceUpdatedAt:    cloneTimePtr(item.SourceUpdatedAt),
+			Metadata:           copyMap(item.Metadata),
+		})
+	}
+	return out
+}
+
+func mapExternalPlayerStatisticsToDomain(
+	leagueID string,
+	items []ExternalPlayerStatValue,
+	playerMappings playerMappings,
+	teamMappings teamMappings,
+) []statvalue.PlayerValue {
+	if len(items) == 0 {
+		return nil
+	}
+
+	out := make([]statvalue.PlayerValue, 0, len(items))
+	for _, item := range items {
+		if item.SeasonRefID <= 0 || item.StatTypeExternalID <= 0 {
+			continue
+		}
+		playerID := strings.TrimSpace(playerMappings.byRefID[item.PlayerExternalID])
+		teamID := resolveTeamPublicID(teamMappings, item.TeamExternalID, "")
+		fixtureID := ""
+		if item.FixtureExternalID > 0 {
+			fixtureID = buildFixturePublicID(leagueID, item.FixtureExternalID)
+		}
+		statKey := strings.TrimSpace(item.StatKey)
+		if statKey == "" {
+			statKey = strings.TrimSpace(item.StatTypeName)
+		}
+		if statKey == "" {
+			statKey = fmt.Sprintf("type-%d", item.StatTypeExternalID)
+		}
+
+		out = append(out, statvalue.PlayerValue{
+			LeagueID:           leagueID,
+			SeasonRefID:        item.SeasonRefID,
+			PlayerID:           playerID,
+			ExternalPlayerID:   item.PlayerExternalID,
+			TeamID:             teamID,
+			ExternalTeamID:     item.TeamExternalID,
+			FixtureID:          fixtureID,
+			ExternalFixtureID:  item.FixtureExternalID,
+			StatTypeExternalID: item.StatTypeExternalID,
+			StatKey:            statKey,
+			Scope:              normalizeStatScope(item.Scope),
+			ValueNum:           cloneFloatPtr(item.ValueNum),
+			ValueText:          strings.TrimSpace(item.ValueText),
+			ValueJSON:          copyMap(item.ValueJSON),
+			SourceUpdatedAt:    cloneTimePtr(item.SourceUpdatedAt),
+			Metadata:           copyMap(item.Metadata),
+		})
+	}
+	return out
+}
+
+func normalizeStatScope(scope string) string {
+	scope = strings.TrimSpace(strings.ToLower(scope))
+	if scope == "" {
+		return "total"
+	}
+	scope = strings.ReplaceAll(scope, "-", "_")
+	scope = strings.ReplaceAll(scope, " ", "_")
+	switch scope {
+	case "overall", "all", "value":
+		return "total"
+	default:
+		return scope
+	}
+}
+
 func applyLeagueToPayloads(leagueID string, items []rawdata.Payload) []rawdata.Payload {
 	if len(items) == 0 {
 		return nil
@@ -1064,6 +1273,14 @@ func cloneTimePtr(value *time.Time) *time.Time {
 		return nil
 	}
 	v := value.UTC()
+	return &v
+}
+
+func cloneFloatPtr(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	v := *value
 	return &v
 }
 

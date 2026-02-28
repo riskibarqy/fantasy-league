@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/riskibarqy/fantasy-league/internal/domain/topscorers"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/riskibarqy/fantasy-league/external/anubis"
 	"github.com/riskibarqy/fantasy-league/external/jobqueue"
@@ -34,14 +33,20 @@ import (
 	idgen "github.com/riskibarqy/fantasy-league/internal/platform/id"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	"github.com/uptrace/opentelemetry-go-extra/otelsqlx"
 )
 
 type fixtureIngestionWriter interface {
 	UpsertFixtures(ctx context.Context, items []fixturedomain.Fixture) error
 }
 
-func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func() error, error) {
-	db, err := sqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary))
+func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, func() error, error) {
+	db, err := otelsqlx.Open("postgres", normalizeDBURL(cfg.DBURL, cfg.DBDisablePreparedBinary),
+		otelsql.WithDBSystem("postgresql"),
+		otelsql.WithDBName(dbNameFromURL(cfg.DBURL)),
+		otelsql.WithQueryFormatter(formatDBQueryForTrace),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open postgres connection: %w", err)
 	}
@@ -65,6 +70,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
 	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
+	statValueRepo := postgresrepo.NewStatValueRepository(db)
 	rawDataRepo := postgresrepo.NewRawDataRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
@@ -127,6 +133,7 @@ func NewHTTPHandler(cfg config.Config, logger *slog.Logger) (http.Handler, func(
 		},
 		logger,
 	)
+	sportDataSyncSvc.SetStatValueRepository(statValueRepo)
 	jobQueue := usecase.NewNoopJobQueue()
 	if cfg.QStashEnabled {
 		jobQueue = jobqueue.NewQStashPublisher(jobqueue.QStashPublisherConfig{

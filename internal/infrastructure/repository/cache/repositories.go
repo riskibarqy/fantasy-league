@@ -674,6 +674,7 @@ func (r *CustomLeagueRepository) SoftDeleteGroup(ctx context.Context, groupID, o
 	r.cache.DeletePrefix(ctx, customLeagueStandingsByUserPrefix)
 	r.cache.DeletePrefix(ctx, customLeagueMembershipPrefix(groupID))
 	r.cache.DeletePrefix(ctx, customLeagueStandingsPrefix(groupID))
+	r.cache.DeletePrefix(ctx, customLeagueMembershipsByLeaguePrefix)
 	return nil
 }
 
@@ -759,6 +760,23 @@ func (r *CustomLeagueRepository) ListMembershipsByGroup(ctx context.Context, gro
 	return append([]customleague.Membership(nil), items...), nil
 }
 
+func (r *CustomLeagueRepository) ListMembershipsByLeague(ctx context.Context, leagueID string) ([]customleague.Membership, error) {
+	key := customLeagueMembershipsByLeagueKey(leagueID)
+	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
+		items, err := r.next.ListMembershipsByLeague(ctx, leagueID)
+		if err != nil {
+			return nil, err
+		}
+		return append([]customleague.Membership(nil), items...), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items, _ := v.([]customleague.Membership)
+	return append([]customleague.Membership(nil), items...), nil
+}
+
 func (r *CustomLeagueRepository) ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]customleague.Group, error) {
 	v, err := r.cache.GetOrLoad(ctx, customLeagueDefaultByLeagueKey(leagueID), func(ctx context.Context) (any, error) {
 		items, err := r.next.ListDefaultGroupsByLeague(ctx, leagueID)
@@ -819,6 +837,7 @@ func (r *CustomLeagueRepository) UpsertMembershipAndStanding(ctx context.Context
 	r.cache.Delete(ctx, customLeagueIsMemberKey(membership.GroupID, membership.UserID))
 	r.cache.Delete(ctx, customLeagueStandingsKey(membership.GroupID))
 	r.cache.Delete(ctx, customLeagueStandingsByUserKey(membership.UserID))
+	r.cache.DeletePrefix(ctx, customLeagueMembershipsByLeaguePrefix)
 	return nil
 }
 
@@ -878,6 +897,7 @@ const (
 	customLeagueDefaultByLeaguePrefix        = "custom-league:default:league:"
 	customLeagueDefaultByLeagueCountryPrefix = "custom-league:default:league-country:"
 	customLeagueStandingsByUserPrefix        = "custom-league:standings:user:"
+	customLeagueMembershipsByLeaguePrefix    = "custom-league:members:league:"
 )
 
 func customLeagueByIDKey(groupID string) string {
@@ -910,6 +930,10 @@ func customLeagueIsMemberKey(groupID, userID string) string {
 
 func customLeagueMembershipPrefix(groupID string) string {
 	return "custom-league:member:group:" + groupID + ":user:"
+}
+
+func customLeagueMembershipsByLeagueKey(leagueID string) string {
+	return customLeagueMembershipsByLeaguePrefix + leagueID
 }
 
 func customLeagueStandingsKey(groupID string) string {

@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +12,13 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
+)
+
+var logger = logging.NewJSON(logging.LevelInfo).With(
+	"service", "fantasy-league-migrate",
+	"env", migrationEnv(),
+	"component", "migration",
 )
 
 func main() {
@@ -23,20 +29,20 @@ func main() {
 
 	dbURL := strings.TrimSpace(os.Getenv("DB_URL"))
 	if dbURL == "" {
-		log.Fatal("DB_URL is required")
+		fatal("DB_URL is required")
 	}
 
 	dbURL = normalizeDBURL(dbURL)
 
 	migrationsDir, err := resolveMigrationsDir()
 	if err != nil {
-		log.Fatalf("resolve migrations dir: %v", err)
+		fatal("resolve migrations dir failed", "error", err)
 	}
 
 	sourceURL := "file://" + filepath.ToSlash(migrationsDir)
 	m, err := migrate.New(sourceURL, dbURL)
 	if err != nil {
-		log.Fatalf("create migrator: %v", err)
+		fatal("create migrator failed", "error", err)
 	}
 	defer closeMigrator(m)
 
@@ -45,15 +51,15 @@ func main() {
 	case "up":
 		err = m.Up()
 		handleMigrationErr(err)
-		log.Printf("migrations applied (source=%s)", sourceURL)
+		logger.Info("migrations applied", "source", sourceURL)
 	case "down":
 		steps, parseErr := parseSteps(os.Args[2:])
 		if parseErr != nil {
-			log.Fatal(parseErr)
+			fatal("parse down steps failed", "error", parseErr)
 		}
 		err = m.Steps(-steps)
 		handleMigrationErr(err)
-		log.Printf("rolled back %d migration(s)", steps)
+		logger.Info("migrations rolled back", "steps", steps)
 	case "version":
 		version, dirty, versionErr := m.Version()
 		if errors.Is(versionErr, migrate.ErrNilVersion) {
@@ -62,33 +68,33 @@ func main() {
 			return
 		}
 		if versionErr != nil {
-			log.Fatalf("read version: %v", versionErr)
+			fatal("read migration version failed", "error", versionErr)
 		}
 		fmt.Printf("version: %d\n", version)
 		fmt.Printf("dirty: %t\n", dirty)
 	case "force":
 		if len(os.Args) < 3 {
-			log.Fatal("force requires a version argument")
+			fatal("force requires a version argument")
 		}
 		version, parseErr := parseVersion(os.Args[2])
 		if parseErr != nil {
-			log.Fatal(parseErr)
+			fatal("parse force version failed", "error", parseErr)
 		}
 		if err := m.Force(version); err != nil {
-			log.Fatalf("force version %d: %v", version, err)
+			fatal("force migration version failed", "version", version, "error", err)
 		}
-		log.Printf("forced version to %d", version)
+		logger.Info("migration version forced", "version", version)
 	case "goto", "migrate":
 		if len(os.Args) < 3 {
-			log.Fatal("goto requires a target version argument")
+			fatal("goto requires a target version argument")
 		}
 		target, parseErr := parseTarget(os.Args[2])
 		if parseErr != nil {
-			log.Fatal(parseErr)
+			fatal("parse goto target failed", "error", parseErr)
 		}
 		err = m.Migrate(target)
 		handleMigrationErr(err)
-		log.Printf("migrated to version %d", target)
+		logger.Info("migrated to version", "target", target)
 	default:
 		printUsage()
 		os.Exit(2)
@@ -139,20 +145,33 @@ func handleMigrationErr(err error) {
 		return
 	}
 	if errors.Is(err, migrate.ErrNoChange) {
-		log.Printf("no migration changes")
+		logger.Info("no migration changes")
 		return
 	}
-	log.Fatal(err)
+	fatal("migration failed", "error", err)
 }
 
 func closeMigrator(m *migrate.Migrate) {
 	srcErr, dbErr := m.Close()
 	if srcErr != nil {
-		log.Printf("close migration source: %v", srcErr)
+		logger.Warn("close migration source failed", "error", srcErr)
 	}
 	if dbErr != nil {
-		log.Printf("close migration db: %v", dbErr)
+		logger.Warn("close migration db failed", "error", dbErr)
 	}
+}
+
+func fatal(msg string, args ...any) {
+	logger.Error(msg, args...)
+	os.Exit(1)
+}
+
+func migrationEnv() string {
+	env := strings.TrimSpace(os.Getenv("APP_ENV"))
+	if env == "" {
+		return "dev"
+	}
+	return env
 }
 
 func resolveMigrationsDir() (string, error) {

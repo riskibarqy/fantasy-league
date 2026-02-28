@@ -68,6 +68,9 @@ func (s *LineupService) SetScoringUpdater(scorer leagueScoringUpdater) {
 }
 
 func (s *LineupService) GetByUserAndLeague(ctx context.Context, userID, leagueID string) (lineup.Lineup, bool, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.LineupService.GetByUserAndLeague")
+	defer span.End()
+
 	userID = strings.TrimSpace(userID)
 	leagueID = strings.TrimSpace(leagueID)
 	if userID == "" || leagueID == "" {
@@ -83,6 +86,9 @@ func (s *LineupService) GetByUserAndLeague(ctx context.Context, userID, leagueID
 }
 
 func (s *LineupService) Save(ctx context.Context, input SaveLineupInput) (lineup.Lineup, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.LineupService.Save")
+	defer span.End()
+
 	input.UserID = strings.TrimSpace(input.UserID)
 	input.LeagueID = strings.TrimSpace(input.LeagueID)
 	input.GoalkeeperID = strings.TrimSpace(input.GoalkeeperID)

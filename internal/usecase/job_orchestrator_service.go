@@ -3,7 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"regexp"
 	"strings"
 	"time"
@@ -60,7 +60,7 @@ type JobOrchestratorService struct {
 	queue        JobQueue
 	dispatchRepo jobscheduler.Repository
 	cfg          JobOrchestratorConfig
-	logger       *slog.Logger
+	logger       *logging.Logger
 	now          func() time.Time
 }
 
@@ -74,13 +74,13 @@ func NewJobOrchestratorService(
 	queue JobQueue,
 	dispatchRepo jobscheduler.Repository,
 	cfg JobOrchestratorConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *JobOrchestratorService {
 	if queue == nil {
 		queue = NewNoopJobQueue()
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 	if cfg.ScheduleInterval <= 0 {
 		cfg.ScheduleInterval = 15 * time.Minute
@@ -106,18 +106,30 @@ func NewJobOrchestratorService(
 }
 
 func (s *JobOrchestratorService) RunScheduleSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunScheduleSync")
+	defer span.End()
+
 	return s.run(ctx, "schedule", input, false, true)
 }
 
 func (s *JobOrchestratorService) RunLiveSync(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunLiveSync")
+	defer span.End()
+
 	return s.run(ctx, "live", input, true, true)
 }
 
 func (s *JobOrchestratorService) RunScheduleSyncDirect(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.RunScheduleSyncDirect")
+	defer span.End()
+
 	return s.run(ctx, "schedule-direct", input, false, false)
 }
 
 func (s *JobOrchestratorService) Bootstrap(ctx context.Context, input JobSyncInput) (JobSyncResult, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.JobOrchestratorService.Bootstrap")
+	defer span.End()
+
 	leagues, err := s.pickLeagues(ctx, input.LeagueID)
 	if err != nil {
 		return JobSyncResult{}, err

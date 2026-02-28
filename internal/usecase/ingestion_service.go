@@ -43,6 +43,9 @@ func NewIngestionService(
 }
 
 func (s *IngestionService) UpsertFixtures(ctx context.Context, fixtures []fixture.Fixture) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.UpsertFixtures")
+	defer span.End()
+
 	if len(fixtures) == 0 {
 		return fmt.Errorf("%w: fixtures are required", ErrInvalidInput)
 	}
@@ -71,6 +74,9 @@ func (s *IngestionService) UpsertFixtures(ctx context.Context, fixtures []fixtur
 }
 
 func (s *IngestionService) UpsertPlayerFixtureStats(ctx context.Context, fixtureID string, stats []playerstats.FixtureStat) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.UpsertPlayerFixtureStats")
+	defer span.End()
+
 	fixtureID = strings.TrimSpace(fixtureID)
 	if fixtureID == "" {
 		return fmt.Errorf("%w: fixture_id is required", ErrInvalidInput)
@@ -97,6 +103,9 @@ func (s *IngestionService) UpsertPlayerFixtureStats(ctx context.Context, fixture
 }
 
 func (s *IngestionService) UpsertTeamFixtureStats(ctx context.Context, fixtureID string, stats []teamstats.FixtureStat) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.UpsertTeamFixtureStats")
+	defer span.End()
+
 	fixtureID = strings.TrimSpace(fixtureID)
 	if fixtureID == "" {
 		return fmt.Errorf("%w: fixture_id is required", ErrInvalidInput)
@@ -119,6 +128,9 @@ func (s *IngestionService) UpsertTeamFixtureStats(ctx context.Context, fixtureID
 }
 
 func (s *IngestionService) ReplaceFixtureEvents(ctx context.Context, fixtureID string, events []playerstats.FixtureEvent) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.ReplaceFixtureEvents")
+	defer span.End()
+
 	fixtureID = strings.TrimSpace(fixtureID)
 	if fixtureID == "" {
 		return fmt.Errorf("%w: fixture_id is required", ErrInvalidInput)
@@ -145,6 +157,9 @@ func (s *IngestionService) ReplaceFixtureEvents(ctx context.Context, fixtureID s
 }
 
 func (s *IngestionService) UpsertRawPayloads(ctx context.Context, source string, items []rawdata.Payload) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.UpsertRawPayloads")
+	defer span.End()
+
 	if s.rawDataRepo == nil {
 		return nil
 	}
@@ -181,6 +196,9 @@ func (s *IngestionService) UpsertRawPayloads(ctx context.Context, source string,
 }
 
 func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID string, live bool, items []leaguestanding.Standing) error {
+	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.ReplaceLeagueStandings")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	if leagueID == "" {
 		return fmt.Errorf("%w: league_id is required", ErrInvalidInput)

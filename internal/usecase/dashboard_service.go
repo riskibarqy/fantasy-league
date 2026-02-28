@@ -49,6 +49,9 @@ func NewDashboardService(
 }
 
 func (s *DashboardService) Get(ctx context.Context, userID string) (Dashboard, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.DashboardService.Get")
+	defer span.End()
+
 	leagues, err := s.leagueRepo.List(ctx)
 	if err != nil {
 		return Dashboard{}, fmt.Errorf("list leagues: %w", err)

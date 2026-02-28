@@ -3,11 +3,14 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
 
 	sonic "github.com/bytedance/sonic"
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -35,9 +38,10 @@ type googleErrorItem struct {
 }
 
 type mappedError struct {
-	HTTPStatus int
-	Reason     string
-	Status     string
+	HTTPStatus    int
+	Reason        string
+	Status        string
+	PublicMessage string
 }
 
 func writeJSON(ctx context.Context, w http.ResponseWriter, status int, payload any) {
@@ -64,17 +68,41 @@ func writeError(ctx context.Context, w http.ResponseWriter, err error) {
 	defer span.End()
 
 	mapped := mapError(ctx, err)
+	internalMessage := err.Error()
+	if internalMessage == "" {
+		internalMessage = http.StatusText(mapped.HTTPStatus)
+	}
+
+	logging.Default().ErrorContext(ctx, "api error response",
+		"event", "api_error",
+		"error_code", mapped.Reason,
+		"http_status", mapped.HTTPStatus,
+		"error_status", mapped.Status,
+		"user_message", mapped.PublicMessage,
+		"internal_message", internalMessage,
+	)
+
+	span.RecordError(err)
+	span.SetStatus(codes.Error, mapped.Reason)
+	span.SetAttributes(
+		attribute.Int("error.http_status", mapped.HTTPStatus),
+		attribute.String("error.reason", mapped.Reason),
+		attribute.String("error.status", mapped.Status),
+		attribute.String("error.public_message", mapped.PublicMessage),
+		attribute.String("error.internal_message", internalMessage),
+	)
+
 	writeJSON(ctx, w, mapped.HTTPStatus, googleResponseEnvelope{
 		APIVersion: googleAPIVersion,
 		Error: &googleErrorBody{
 			Code:    mapped.HTTPStatus,
-			Message: err.Error(),
+			Message: mapped.PublicMessage,
 			Status:  mapped.Status,
 			Errors: []googleErrorItem{
 				{
 					Domain:  errorDomain,
 					Reason:  mapped.Reason,
-					Message: err.Error(),
+					Message: mapped.PublicMessage,
 				},
 			},
 		},
@@ -111,27 +139,31 @@ func mapError(ctx context.Context, err error) mappedError {
 	switch {
 	case errors.Is(err, usecase.ErrInvalidInput):
 		return mappedError{
-			HTTPStatus: http.StatusBadRequest,
-			Reason:     "invalidInput",
-			Status:     "INVALID_ARGUMENT",
+			HTTPStatus:    http.StatusBadRequest,
+			Reason:        "invalidInput",
+			Status:        "INVALID_ARGUMENT",
+			PublicMessage: "invalid request",
 		}
 	case errors.Is(err, usecase.ErrNotFound):
 		return mappedError{
-			HTTPStatus: http.StatusNotFound,
-			Reason:     "notFound",
-			Status:     "NOT_FOUND",
+			HTTPStatus:    http.StatusNotFound,
+			Reason:        "notFound",
+			Status:        "NOT_FOUND",
+			PublicMessage: "resource not found",
 		}
 	case errors.Is(err, usecase.ErrUnauthorized):
 		return mappedError{
-			HTTPStatus: http.StatusUnauthorized,
-			Reason:     "unauthorized",
-			Status:     "UNAUTHENTICATED",
+			HTTPStatus:    http.StatusUnauthorized,
+			Reason:        "unauthorized",
+			Status:        "UNAUTHENTICATED",
+			PublicMessage: "unauthorized",
 		}
 	case errors.Is(err, usecase.ErrDependencyUnavailable):
 		return mappedError{
-			HTTPStatus: http.StatusServiceUnavailable,
-			Reason:     "dependencyUnavailable",
-			Status:     "UNAVAILABLE",
+			HTTPStatus:    http.StatusServiceUnavailable,
+			Reason:        "dependencyUnavailable",
+			Status:        "UNAVAILABLE",
+			PublicMessage: "dependency unavailable",
 		}
 	case errors.Is(err, fantasy.ErrInvalidSquadSize),
 		errors.Is(err, fantasy.ErrExceededBudget),
@@ -140,15 +172,17 @@ func mapError(ctx context.Context, err error) mappedError {
 		errors.Is(err, fantasy.ErrUnknownPlayerPosition),
 		errors.Is(err, fantasy.ErrDuplicatePlayerInSquad):
 		return mappedError{
-			HTTPStatus: http.StatusBadRequest,
-			Reason:     "invalidSquad",
-			Status:     "INVALID_ARGUMENT",
+			HTTPStatus:    http.StatusBadRequest,
+			Reason:        "invalidSquad",
+			Status:        "INVALID_ARGUMENT",
+			PublicMessage: "invalid squad",
 		}
 	default:
 		return mappedError{
-			HTTPStatus: http.StatusInternalServerError,
-			Reason:     "internalError",
-			Status:     "INTERNAL",
+			HTTPStatus:    http.StatusInternalServerError,
+			Reason:        "internalError",
+			Status:        "INTERNAL",
+			PublicMessage: "internal server error",
 		}
 	}
 }

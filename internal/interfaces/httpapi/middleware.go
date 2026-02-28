@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -70,7 +70,7 @@ func RequireInternalJobToken(token string, next http.Handler) http.Handler {
 	})
 }
 
-func RequestLogging(logger *slog.Logger, next http.Handler) http.Handler {
+func RequestLogging(logger *logging.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := startSpan(r.Context(), "httpapi.RequestLogging")
 		defer span.End()
@@ -78,21 +78,12 @@ func RequestLogging(logger *slog.Logger, next http.Handler) http.Handler {
 		started := time.Now()
 		next.ServeHTTP(w, r.WithContext(ctx))
 
-		spanContext := trace.SpanContextFromContext(ctx)
-		traceID := ""
-		spanID := ""
-		if spanContext.IsValid() {
-			traceID = spanContext.TraceID().String()
-			spanID = spanContext.SpanID().String()
-		}
-
-		logger.InfoContext(ctx, "http request",
-			"method", r.Method,
-			"path", r.URL.Path,
+		logger.InfoContext(ctx, "http_request",
+			"event", "http_request",
+			"http_method", r.Method,
+			"http_path", r.URL.Path,
 			"remote_addr", r.RemoteAddr,
 			"duration_ms", time.Since(started).Milliseconds(),
-			"trace_id", traceID,
-			"span_id", spanID,
 		)
 	})
 }

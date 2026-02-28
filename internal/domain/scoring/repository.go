@@ -4,6 +4,7 @@ import "context"
 
 type Repository interface {
 	GetGameweekLock(ctx context.Context, leagueID string, gameweek int) (GameweekLock, bool, error)
+	ListGameweekLocksByLeague(ctx context.Context, leagueID string) ([]GameweekLock, error)
 	UpsertGameweekLock(ctx context.Context, lock GameweekLock) error
 
 	GetSquadSnapshot(ctx context.Context, leagueID string, gameweek int, userID string) (SquadSnapshot, bool, error)
@@ -11,6 +12,7 @@ type Repository interface {
 
 	GetLineupSnapshot(ctx context.Context, leagueID string, gameweek int, userID string) (LineupSnapshot, bool, error)
 	UpsertLineupSnapshot(ctx context.Context, snapshot LineupSnapshot) error
+	ListLineupSnapshotGameweeksByLeague(ctx context.Context, leagueID string) ([]int, error)
 	ListLineupSnapshotsByLeagueGameweek(ctx context.Context, leagueID string, gameweek int) ([]LineupSnapshot, error)
 
 	UpsertUserGameweekPoints(ctx context.Context, points UserGameweekPoints) error

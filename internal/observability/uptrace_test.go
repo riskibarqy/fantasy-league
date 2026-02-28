@@ -2,8 +2,7 @@ package observability
 
 import (
 	"context"
-	"io"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"testing"
 
 	"github.com/riskibarqy/fantasy-league/internal/config"
@@ -17,7 +16,7 @@ func TestInitUptrace_Disabled(t *testing.T) {
 		AppEnv:         config.EnvDev,
 	}
 
-	shutdown, err := InitUptrace(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	shutdown, err := InitUptrace(cfg, logging.NewNop())
 	if err != nil {
 		t.Fatalf("init uptrace: %v", err)
 	}

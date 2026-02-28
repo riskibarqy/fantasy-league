@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,8 +13,10 @@ import (
 
 	sonic "github.com/bytedance/sonic"
 	crerr "github.com/cockroachdb/errors"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/valyala/bytebufferpool"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,25 +40,25 @@ type QStashPublisher struct {
 	targetBaseURL    string
 	retries          int
 	internalJobToken string
-	logger           *slog.Logger
+	logger           *logging.Logger
 	breaker          *resilience.CircuitBreaker
 	circuitEnabled   bool
 }
 
-func NewQStashPublisher(cfg QStashPublisherConfig, logger *slog.Logger) *QStashPublisher {
+func NewQStashPublisher(cfg QStashPublisherConfig, logger *logging.Logger) *QStashPublisher {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 	breakerCfg := resilience.NormalizeCircuitBreakerConfig(cfg.CircuitBreaker)
 
 	return &QStashPublisher{
-		client: &http.Client{
+		client: withTracingTransport(&http.Client{
 			Timeout: timeout,
-		},
+		}),
 		baseURL:          strings.TrimRight(cfg.BaseURL, "/"),
 		token:            strings.TrimSpace(cfg.Token),
 		targetBaseURL:    strings.TrimRight(strings.TrimSpace(cfg.TargetBaseURL), "/"),
@@ -67,6 +68,19 @@ func NewQStashPublisher(cfg QStashPublisherConfig, logger *slog.Logger) *QStashP
 		breaker:          resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
 		circuitEnabled:   breakerCfg.Enabled,
 	}
+}
+
+func withTracingTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	copyClient := *client
+	baseTransport := copyClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	copyClient.Transport = otelhttp.NewTransport(baseTransport)
+	return &copyClient
 }
 
 func (p *QStashPublisher) Enqueue(ctx context.Context, path string, payload any, delay time.Duration, deduplicationID string) error {

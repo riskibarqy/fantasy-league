@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -22,9 +22,25 @@ func main() {
 		panic(err)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: cfg.LogLevel,
-	}))
+	logger := logging.NewJSON(cfg.LogLevel).With(
+		"service", cfg.ServiceName,
+		"env", cfg.AppEnv,
+		"version", cfg.ServiceVersion,
+		"component", "api",
+	)
+
+	logger, shutdownBetterStack, err := observability.InitBetterStackLogger(cfg, logger)
+	if err != nil {
+		logger.Error("init betterstack logger", "error", err)
+		os.Exit(1)
+	}
+	logger = logger.With(
+		"service", cfg.ServiceName,
+		"env", cfg.AppEnv,
+		"version", cfg.ServiceVersion,
+		"component", "api",
+	)
+	logging.SetDefault(logger)
 
 	shutdownTelemetry, err := observability.InitUptrace(cfg, logger)
 	if err != nil {
@@ -93,6 +109,10 @@ func main() {
 	}
 	if err := shutdownTelemetry(shutdownCtx); err != nil {
 		logger.Error("shutdown observability failed", "error", err)
+		os.Exit(1)
+	}
+	if err := shutdownBetterStack(shutdownCtx); err != nil {
+		logger.Error("shutdown betterstack failed", "error", err)
 		os.Exit(1)
 	}
 	if err := closeDB(); err != nil {

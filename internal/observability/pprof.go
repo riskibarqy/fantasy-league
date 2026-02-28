@@ -3,7 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
 	"net/http/pprof"
 	"time"
@@ -11,9 +11,9 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/config"
 )
 
-func StartPprofServer(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
+func StartPprofServer(cfg config.Config, logger *logging.Logger) (*http.Server, error) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	if !cfg.PprofEnabled {
@@ -44,12 +44,12 @@ func StartPprofServer(cfg config.Config, logger *slog.Logger) (*http.Server, err
 	return srv, nil
 }
 
-func StopPprofServer(srv *http.Server, logger *slog.Logger, timeout time.Duration) error {
+func StopPprofServer(srv *http.Server, logger *logging.Logger, timeout time.Duration) error {
 	if srv == nil {
 		return nil
 	}
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

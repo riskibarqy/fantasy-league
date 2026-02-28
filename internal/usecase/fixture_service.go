@@ -22,6 +22,9 @@ func NewFixtureService(leagueRepo league.Repository, fixtureRepo fixture.Reposit
 }
 
 func (s *FixtureService) ListByLeague(ctx context.Context, leagueID string) ([]fixture.Fixture, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.FixtureService.ListByLeague")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	if leagueID == "" {
 		return nil, fmt.Errorf("%w: league id is required", ErrInvalidInput)
@@ -44,6 +47,9 @@ func (s *FixtureService) ListByLeague(ctx context.Context, leagueID string) ([]f
 }
 
 func (s *FixtureService) GetByLeagueAndID(ctx context.Context, leagueID, fixtureID string) (fixture.Fixture, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.FixtureService.GetByLeagueAndID")
+	defer span.End()
+
 	leagueID = strings.TrimSpace(leagueID)
 	fixtureID = strings.TrimSpace(fixtureID)
 	if leagueID == "" {

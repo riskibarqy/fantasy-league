@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -13,8 +12,10 @@ import (
 	sonic "github.com/bytedance/sonic"
 	crerr "github.com/cockroachdb/errors"
 	"github.com/riskibarqy/fantasy-league/internal/domain/user"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"github.com/riskibarqy/fantasy-league/internal/platform/resilience"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var errAnubisTransient = crerr.New("anubis transient failure")
@@ -23,7 +24,7 @@ type Client struct {
 	httpClient     *http.Client
 	introspectURL  string
 	adminKey       string
-	logger         *slog.Logger
+	logger         *logging.Logger
 	cache          *inMemoryPrincipalCache
 	breaker        *resilience.CircuitBreaker
 	circuitEnabled bool
@@ -35,15 +36,16 @@ func NewClient(
 	baseURL, introspectPath string,
 	adminKey string,
 	breakerCfg resilience.CircuitBreakerConfig,
-	logger *slog.Logger,
+	logger *logging.Logger,
 ) *Client {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
+	httpClient = withTracingTransport(httpClient)
 
 	breakerCfg = resilience.NormalizeCircuitBreakerConfig(breakerCfg)
 
@@ -56,6 +58,19 @@ func NewClient(
 		breaker:        resilience.NewCircuitBreaker(breakerCfg.FailureThreshold, breakerCfg.OpenTimeout, breakerCfg.HalfOpenMaxReq),
 		circuitEnabled: breakerCfg.Enabled,
 	}
+}
+
+func withTracingTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	copyClient := *client
+	baseTransport := copyClient.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	copyClient.Transport = otelhttp.NewTransport(baseTransport)
+	return &copyClient
 }
 
 func (c *Client) VerifyAccessToken(ctx context.Context, token string) (user.Principal, error) {

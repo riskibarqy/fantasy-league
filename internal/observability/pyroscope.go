@@ -1,16 +1,16 @@
 package observability
 
 import (
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/riskibarqy/fantasy-league/internal/config"
 )
 
 // InitPyroscope starts continuous profiling when enabled.
-func InitPyroscope(cfg config.Config, logger *slog.Logger) (func() error, error) {
+func InitPyroscope(cfg config.Config, logger *logging.Logger) (func() error, error) {
 	if logger == nil {
-		logger = slog.Default()
+		logger = logging.Default()
 	}
 
 	if !cfg.PyroscopeEnabled {

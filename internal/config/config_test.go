@@ -16,9 +16,80 @@ func TestLoad_UptraceRequiresDSNWhenEnabled(t *testing.T) {
 	t.Setenv("APP_ENV", EnvDev)
 	t.Setenv("UPTRACE_ENABLED", "true")
 	t.Setenv("UPTRACE_DSN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "")
 
 	if _, err := Load(); err == nil {
 		t.Fatalf("expected error when UPTRACE_ENABLED=true without UPTRACE_DSN")
+	}
+}
+
+func TestLoad_UptraceUsesDSNFromOTLPHeaders(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "true")
+	t.Setenv("UPTRACE_DSN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer token,uptrace-dsn=https://example@api.uptrace.dev?grpc=4317")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UptraceDSN != "https://example@api.uptrace.dev?grpc=4317" {
+		t.Fatalf("unexpected UptraceDSN from OTLP headers: %q", cfg.UptraceDSN)
+	}
+}
+
+func TestLoad_UptraceLogsToggle(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("UPTRACE_LOGS_ENABLED", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UptraceLogsEnabled {
+		t.Fatalf("expected UptraceLogsEnabled=false")
+	}
+}
+
+func TestLoad_BetterStackRequiresEndpointWhenEnabled(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("BETTERSTACK_ENABLED", "true")
+	t.Setenv("BETTERSTACK_ENDPOINT", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected error when BETTERSTACK_ENABLED=true without BETTERSTACK_ENDPOINT")
+	}
+}
+
+func TestLoad_BetterStackConfigParsing(t *testing.T) {
+	t.Setenv("APP_ENV", EnvDev)
+	t.Setenv("UPTRACE_ENABLED", "false")
+	t.Setenv("BETTERSTACK_ENABLED", "true")
+	t.Setenv("BETTERSTACK_ENDPOINT", "s1765114.eu-fsn-3.betterstackdata.com")
+	t.Setenv("BETTERSTACK_TOKEN", "token-123")
+	t.Setenv("BETTERSTACK_TIMEOUT", "4s")
+	t.Setenv("BETTERSTACK_MIN_LEVEL", "warn")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.BetterStackEnabled {
+		t.Fatalf("expected BetterStackEnabled=true")
+	}
+	if cfg.BetterStackEndpoint != "s1765114.eu-fsn-3.betterstackdata.com" {
+		t.Fatalf("unexpected BetterStackEndpoint: %q", cfg.BetterStackEndpoint)
+	}
+	if cfg.BetterStackToken != "token-123" {
+		t.Fatalf("unexpected BetterStackToken")
+	}
+	if cfg.BetterStackTimeout != 4*time.Second {
+		t.Fatalf("unexpected BetterStackTimeout: %s", cfg.BetterStackTimeout)
+	}
+	if cfg.BetterStackMinLevel.String() != "warn" {
+		t.Fatalf("unexpected BetterStackMinLevel: %s", cfg.BetterStackMinLevel.String())
 	}
 }
 

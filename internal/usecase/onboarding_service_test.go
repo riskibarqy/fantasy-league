@@ -2,8 +2,7 @@ package usecase
 
 import (
 	"context"
-	"io"
-	"log/slog"
+	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"testing"
 
 	"github.com/riskibarqy/fantasy-league/internal/domain/fantasy"
@@ -89,7 +88,7 @@ func TestOnboardingService_Complete(t *testing.T) {
 	lineupRepo := memory.NewLineupRepository()
 	profileRepo := newInMemoryOnboardingProfileRepo()
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	squadSvc := NewSquadService(
 		leagueRepo,
 		playerRepo,
@@ -159,7 +158,7 @@ func TestOnboardingService_Complete_DoesNotOverrideCountryWithZZ(t *testing.T) {
 		CountryCode: "ID",
 	}
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := logging.NewNop()
 	squadSvc := NewSquadService(
 		leagueRepo,
 		playerRepo,
