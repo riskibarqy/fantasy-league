@@ -102,6 +102,24 @@ func (s *ScoringService) ensureLeagueUpToDateOnce(ctx context.Context, leagueID 
 		hasCalculatedPoints[row.Gameweek] = struct{}{}
 	}
 
+	existingLocks, err := s.scoringRepo.ListGameweekLocksByLeague(ctx, leagueID)
+	if err != nil {
+		return fmt.Errorf("list gameweek locks by league: %w", err)
+	}
+	lockByGameweek := make(map[int]scoring.GameweekLock, len(existingLocks))
+	for _, item := range existingLocks {
+		lockByGameweek[item.Gameweek] = item
+	}
+
+	snapshotGameweeks, err := s.scoringRepo.ListLineupSnapshotGameweeksByLeague(ctx, leagueID)
+	if err != nil {
+		return fmt.Errorf("list lineup snapshot gameweeks by league: %w", err)
+	}
+	hasSnapshotByGameweek := make(map[int]struct{}, len(snapshotGameweeks))
+	for _, gameweek := range snapshotGameweeks {
+		hasSnapshotByGameweek[gameweek] = struct{}{}
+	}
+
 	byGameweek := make(map[int][]fixture.Fixture)
 	gameweeks := make([]int, 0)
 	for _, item := range fixtures {
@@ -122,13 +140,19 @@ func (s *ScoringService) ensureLeagueUpToDateOnce(ctx context.Context, leagueID 
 			continue
 		}
 
-		lockedNow, err := s.ensureGameweekLocked(ctx, leagueID, gameweek, deadline, now)
+		lockedNow, err := s.ensureGameweekLocked(ctx, leagueID, gameweek, deadline, now, lockByGameweek)
 		if err != nil {
 			return err
+		}
+		if lockedNow {
+			hasSnapshotByGameweek[gameweek] = struct{}{}
 		}
 
 		_, alreadyCalculated := hasCalculatedPoints[gameweek]
 		if !lockedNow && alreadyCalculated && isFinalizedGameweek(items) {
+			continue
+		}
+		if _, exists := hasSnapshotByGameweek[gameweek]; !exists {
 			continue
 		}
 
@@ -189,24 +213,40 @@ func (s *ScoringService) GetUserLeagueSummary(ctx context.Context, leagueID, use
 	return totalPoints, rank, nil
 }
 
-func (s *ScoringService) ensureGameweekLocked(ctx context.Context, leagueID string, gameweek int, deadline, now time.Time) (bool, error) {
-	lock, exists, err := s.scoringRepo.GetGameweekLock(ctx, leagueID, gameweek)
-	if err != nil {
-		return false, fmt.Errorf("get gameweek lock: %w", err)
+func (s *ScoringService) ensureGameweekLocked(
+	ctx context.Context,
+	leagueID string,
+	gameweek int,
+	deadline, now time.Time,
+	lockByGameweek map[int]scoring.GameweekLock,
+) (bool, error) {
+	lock, exists := lockByGameweek[gameweek]
+	if !exists {
+		dbLock, dbExists, err := s.scoringRepo.GetGameweekLock(ctx, leagueID, gameweek)
+		if err != nil {
+			return false, fmt.Errorf("get gameweek lock: %w", err)
+		}
+		if dbExists {
+			lockByGameweek[gameweek] = dbLock
+			lock = dbLock
+			exists = true
+		}
 	}
 	if exists && lock.IsLocked {
 		return false, nil
 	}
 
-	if err := s.scoringRepo.UpsertGameweekLock(ctx, scoring.GameweekLock{
+	nextLock := scoring.GameweekLock{
 		LeagueID:   leagueID,
 		Gameweek:   gameweek,
 		DeadlineAt: deadline,
 		IsLocked:   true,
 		LockedAt:   &now,
-	}); err != nil {
+	}
+	if err := s.scoringRepo.UpsertGameweekLock(ctx, nextLock); err != nil {
 		return false, fmt.Errorf("upsert gameweek lock: %w", err)
 	}
+	lockByGameweek[gameweek] = nextLock
 
 	squads, err := s.squadRepo.ListByLeague(ctx, leagueID)
 	if err != nil {
@@ -259,14 +299,17 @@ func (s *ScoringService) ensureGameweekLocked(ctx context.Context, leagueID stri
 }
 
 func (s *ScoringService) recalculateGameweekPoints(ctx context.Context, leagueID string, gameweek int, now time.Time) error {
-	playerPoints, err := s.playerStatsRepo.GetFantasyPointsByLeagueAndGameweek(ctx, leagueID, gameweek)
-	if err != nil {
-		return fmt.Errorf("get fantasy points by gameweek: %w", err)
-	}
-
 	lineupSnapshots, err := s.scoringRepo.ListLineupSnapshotsByLeagueGameweek(ctx, leagueID, gameweek)
 	if err != nil {
 		return fmt.Errorf("list lineup snapshots by gameweek: %w", err)
+	}
+	if len(lineupSnapshots) == 0 {
+		return nil
+	}
+
+	playerPoints, err := s.playerStatsRepo.GetFantasyPointsByLeagueAndGameweek(ctx, leagueID, gameweek)
+	if err != nil {
+		return fmt.Errorf("get fantasy points by gameweek: %w", err)
 	}
 
 	for _, snapshot := range lineupSnapshots {
@@ -293,6 +336,15 @@ func (s *ScoringService) recalculateStandings(ctx context.Context, leagueID stri
 		return nil
 	}
 
+	memberships, err := s.groupRepo.ListMembershipsByLeague(ctx, leagueID)
+	if err != nil {
+		return fmt.Errorf("list memberships by league for standings: %w", err)
+	}
+	membershipsByGroup := make(map[string][]customleague.Membership, len(groups))
+	for _, member := range memberships {
+		membershipsByGroup[member.GroupID] = append(membershipsByGroup[member.GroupID], member)
+	}
+
 	rows, err := s.scoringRepo.ListUserGameweekPointsByLeague(ctx, leagueID)
 	if err != nil {
 		return fmt.Errorf("list user points by league for standings: %w", err)
@@ -303,10 +355,7 @@ func (s *ScoringService) recalculateStandings(ctx context.Context, leagueID stri
 	}
 
 	for _, group := range groups {
-		memberships, err := s.groupRepo.ListMembershipsByGroup(ctx, group.ID)
-		if err != nil {
-			return fmt.Errorf("list memberships by group=%s: %w", group.ID, err)
-		}
+		memberships := membershipsByGroup[group.ID]
 		if len(memberships) == 0 {
 			continue
 		}

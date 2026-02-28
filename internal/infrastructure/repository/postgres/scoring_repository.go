@@ -51,6 +51,37 @@ func (r *ScoringRepository) GetGameweekLock(ctx context.Context, leagueID string
 	}, true, nil
 }
 
+func (r *ScoringRepository) ListGameweekLocksByLeague(ctx context.Context, leagueID string) ([]scoring.GameweekLock, error) {
+	query, args, err := qb.Select("*").
+		From("gameweek_locks").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("gameweek").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list gameweek locks query: %w", err)
+	}
+
+	var rows []gameweekLockTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list gameweek locks: %w", err)
+	}
+
+	out := make([]scoring.GameweekLock, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, scoring.GameweekLock{
+			LeagueID:   row.LeagueID,
+			Gameweek:   row.Gameweek,
+			DeadlineAt: unixToTime(row.DeadlineAt),
+			IsLocked:   row.IsLocked,
+			LockedAt:   nullUnixToTimePtr(row.LockedAt),
+		})
+	}
+	return out, nil
+}
+
 func (r *ScoringRepository) UpsertGameweekLock(ctx context.Context, lock scoring.GameweekLock) error {
 	insertModel := gameweekLockInsertModel{
 		LeagueID:   lock.LeagueID,
@@ -281,6 +312,27 @@ DO UPDATE SET
 		return fmt.Errorf("upsert lineup snapshot: %w", err)
 	}
 	return nil
+}
+
+func (r *ScoringRepository) ListLineupSnapshotGameweeksByLeague(ctx context.Context, leagueID string) ([]int, error) {
+	query, args, err := qb.Select("gameweek").
+		From("lineup_snapshots").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.IsNull("deleted_at"),
+		).
+		GroupBy("gameweek").
+		OrderBy("gameweek").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list lineup snapshot gameweeks query: %w", err)
+	}
+
+	var rows []int
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list lineup snapshot gameweeks: %w", err)
+	}
+	return rows, nil
 }
 
 func (r *ScoringRepository) ListLineupSnapshotsByLeagueGameweek(ctx context.Context, leagueID string, gameweek int) ([]scoring.LineupSnapshot, error) {

@@ -12,19 +12,30 @@ import (
 type entry struct {
 	value     any
 	expiresAt time.Time
+	createdAt time.Time
 }
 
 type Store struct {
-	mu      sync.RWMutex
-	entries map[string]entry
-	ttl     time.Duration
-	flight  resilience.SingleFlight
+	mu         sync.RWMutex
+	entries    map[string]entry
+	ttl        time.Duration
+	maxEntries int
+	flight     resilience.SingleFlight
 }
 
 func NewStore(ttl time.Duration) *Store {
+	return NewStoreWithLimit(ttl, 10000)
+}
+
+func NewStoreWithLimit(ttl time.Duration, maxEntries int) *Store {
+	if maxEntries <= 0 {
+		maxEntries = 10000
+	}
+
 	return &Store{
-		entries: make(map[string]entry),
-		ttl:     ttl,
+		entries:    make(map[string]entry),
+		ttl:        ttl,
+		maxEntries: maxEntries,
 	}
 }
 
@@ -55,15 +66,21 @@ func (s *Store) Set(_ context.Context, key string, value any) {
 		return
 	}
 
+	now := time.Now()
 	expiresAt := time.Time{}
 	if s.ttl > 0 {
-		expiresAt = time.Now().Add(s.ttl)
+		expiresAt = now.Add(s.ttl)
 	}
 
 	s.mu.Lock()
+	s.pruneExpiredLocked(now)
+	if _, exists := s.entries[key]; !exists && len(s.entries) >= s.maxEntries {
+		s.evictOldestLocked(1)
+	}
 	s.entries[key] = entry{
 		value:     value,
 		expiresAt: expiresAt,
+		createdAt: now,
 	}
 	s.mu.Unlock()
 }
@@ -121,4 +138,37 @@ func (s *Store) GetOrLoad(ctx context.Context, key string, loader func(context.C
 	}
 
 	return value, nil
+}
+
+func (s *Store) pruneExpiredLocked(now time.Time) {
+	if s.ttl <= 0 {
+		return
+	}
+
+	for key, value := range s.entries {
+		if !value.expiresAt.IsZero() && !value.expiresAt.After(now) {
+			delete(s.entries, key)
+		}
+	}
+}
+
+func (s *Store) evictOldestLocked(count int) {
+	for i := 0; i < count && len(s.entries) > 0; i++ {
+		oldestKey := ""
+		var oldestAt time.Time
+		for key, value := range s.entries {
+			createdAt := value.createdAt
+			if createdAt.IsZero() {
+				createdAt = value.expiresAt
+			}
+			if oldestKey == "" || createdAt.Before(oldestAt) {
+				oldestKey = key
+				oldestAt = createdAt
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(s.entries, oldestKey)
+	}
 }

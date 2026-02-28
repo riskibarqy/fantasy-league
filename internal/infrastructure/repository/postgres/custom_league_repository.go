@@ -309,6 +309,39 @@ func (r *CustomLeagueRepository) ListMembershipsByGroup(ctx context.Context, gro
 		return nil, fmt.Errorf("list custom league memberships: %w", err)
 	}
 
+	return customLeagueMembershipsFromRows(rows), nil
+}
+
+func (r *CustomLeagueRepository) ListMembershipsByLeague(ctx context.Context, leagueID string) ([]customleague.Membership, error) {
+	query, args, err := qb.Select(
+		"clm.custom_league_public_id",
+		"clm.user_id",
+		"clm.fantasy_squad_public_id",
+		"clm.joined_at",
+		"clm.created_at",
+		"clm.updated_at",
+	).
+		From("custom_league_members clm JOIN custom_leagues cl ON cl.public_id = clm.custom_league_public_id").
+		Where(
+			qb.Eq("cl.league_public_id", leagueID),
+			qb.IsNull("cl.deleted_at"),
+			qb.IsNull("clm.deleted_at"),
+		).
+		OrderBy("clm.custom_league_public_id", "clm.joined_at", "clm.id").
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list custom league memberships by league query: %w", err)
+	}
+
+	var rows []customLeagueMemberTableModel
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list custom league memberships by league: %w", err)
+	}
+
+	return customLeagueMembershipsFromRows(rows), nil
+}
+
+func customLeagueMembershipsFromRows(rows []customLeagueMemberTableModel) []customleague.Membership {
 	out := make([]customleague.Membership, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, customleague.Membership{
@@ -320,7 +353,7 @@ func (r *CustomLeagueRepository) ListMembershipsByGroup(ctx context.Context, gro
 			UpdatedAt: row.UpdatedAt,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func (r *CustomLeagueRepository) ListStandingsByUser(ctx context.Context, userID string) ([]customleague.Standing, error) {

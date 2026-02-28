@@ -68,6 +68,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 	var squadRepo fantasy.Repository = postgresrepo.NewSquadRepository(db)
 	var playerStatsRepo playerstatsdomain.Repository = postgresrepo.NewPlayerStatsRepository(db)
 	var teamStatsRepo teamstatsdomain.Repository = postgresrepo.NewTeamStatsRepository(db)
+	statValueRepo := postgresrepo.NewStatValueRepository(db)
 	rawDataRepo := postgresrepo.NewRawDataRepository(db)
 	var customLeagueRepo customleaguedomain.Repository = postgresrepo.NewCustomLeagueRepository(db)
 	var onboardingRepo onboardingdomain.Repository = postgresrepo.NewOnboardingRepository(db)
@@ -128,6 +129,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 		},
 		logger,
 	)
+	sportDataSyncSvc.SetStatValueRepository(statValueRepo)
 	jobQueue := usecase.NewNoopJobQueue()
 	if cfg.QStashEnabled {
 		jobQueue = jobqueue.NewQStashPublisher(jobqueue.QStashPublisherConfig{

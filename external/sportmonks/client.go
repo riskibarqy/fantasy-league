@@ -28,6 +28,7 @@ const (
 	defaultIncludeFixture     = "participants;scores;venue;state;statistics.type;lineups.details.type;events.type;events.subtype"
 	defaultIncludeFixtureLite = "participants;scores;venue;state"
 	defaultIncludeStanding    = "participant;details.type;form"
+	defaultIncludeSeasonStats = "type;details.type"
 	fixtureDetailChunkSize    = 20
 	fixtureDetailMaxIDs       = 80
 )
@@ -123,7 +124,6 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 	}
 	payloads = append(payloads, buildAPIPayload(schedulePath, nil, raw))
 
-	fixtureIDs := make([]int64, 0, 128)
 	for _, stage := range schedule.Data {
 		for _, round := range stage.Rounds {
 			gameweek := parseGameweek(round.Name, 1)
@@ -153,13 +153,13 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 		}
 	}
 
+	fixtureIDs := make([]int64, 0, len(byID))
 	for fixtureID := range byID {
 		fixtureIDs = append(fixtureIDs, fixtureID)
 	}
 	sort.SliceStable(fixtureIDs, func(i, j int) bool { return fixtureIDs[i] < fixtureIDs[j] })
 
-	// Hydrate all season fixtures with lightweight payload so score/status history is complete.
-	// This enables deterministic head-to-head tie-breakers even for older matches.
+	// Keep full-season fixture core synced from provider API.
 	chunkSize := fixtureDetailChunkSize
 	for start := 0; start < len(fixtureIDs); start += chunkSize {
 		end := start + chunkSize
@@ -206,7 +206,7 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 
 	heavyFixtureIDs := selectFixtureIDsForDetailHydration(byID, time.Now().UTC())
 	if len(heavyFixtureIDs) == 0 {
-		c.logger.WarnContext(ctx, "skip fixture rich-details hydration: no fixtures inside hydration window", "season_id", seasonID)
+		c.logger.WarnContext(ctx, "skip fixture rich-details hydration: no fixtures found for previous/current/next gameweek", "season_id", seasonID)
 	}
 
 	for start := 0; start < len(heavyFixtureIDs); start += chunkSize {
@@ -280,6 +280,14 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 				stat.FixtureExternalID = item.ID
 				stat.PlayerExternalID = lineupItem.PlayerID
 				stat.TeamExternalID = lineupItem.TeamID
+				stat.Position = firstNonEmpty(
+					stat.Position,
+					positionCodeFromID(lineupItem.PositionID),
+					positionCodeFromID(lineupItem.DetailedPositionID),
+					strings.ToUpper(strings.TrimSpace(lineupItem.PositionCode)),
+					normalizePositionName(lineupItem.PositionName),
+					normalizePositionName(lineupItem.DetailedPositionName),
+				)
 
 				payload := extractPlayerDetailStats(lineupItem.Details)
 				if payload.minutesPlayed > stat.MinutesPlayed {
@@ -300,10 +308,37 @@ func (c *Client) FetchFixtureBundleBySeason(ctx context.Context, seasonID int64)
 				if payload.saves > stat.Saves {
 					stat.Saves = payload.saves
 				}
+				if payload.goalsConceded > stat.GoalsConceded {
+					stat.GoalsConceded = payload.goalsConceded
+				}
+				if payload.ownGoals > stat.OwnGoals {
+					stat.OwnGoals = payload.ownGoals
+				}
+				if payload.penaltiesSaved > stat.PenaltiesSaved {
+					stat.PenaltiesSaved = payload.penaltiesSaved
+				}
+				if payload.penaltiesMissed > stat.PenaltiesMissed {
+					stat.PenaltiesMissed = payload.penaltiesMissed
+				}
+				if payload.bps > stat.BPS {
+					stat.BPS = payload.bps
+				}
+				if payload.bonusPoints > stat.BonusPoints {
+					stat.BonusPoints = payload.bonusPoints
+				}
 				stat.CleanSheet = stat.CleanSheet || payload.cleanSheet || (payload.minutesPlayed >= 60 && payload.goalsConceded == 0)
 				stat.AdvancedStats = mergeMaps(stat.AdvancedStats, payload.advanced)
-				stat.FantasyPoints = estimateFantasyPoints(stat)
 
+				playerStatsByKey[key] = stat
+			}
+			applyFPLBonusByBPS(item.ID, playerStatsByKey)
+			for _, lineupItem := range item.Lineups {
+				if lineupItem.PlayerID <= 0 {
+					continue
+				}
+				key := fmt.Sprintf("%d:%d", item.ID, lineupItem.PlayerID)
+				stat := playerStatsByKey[key]
+				stat.FantasyPoints = estimateFantasyPoints(stat)
 				playerStatsByKey[key] = stat
 			}
 
@@ -483,6 +518,156 @@ func (c *Client) FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int
 	}
 	items := parseStandingsPayload(raw, envelope.Data)
 	return items, payloads, nil
+}
+
+func (c *Client) FetchStatisticTypes(ctx context.Context) ([]usecase.ExternalStatType, []rawdata.Payload, error) {
+	path := "/core/types"
+	typesByID := make(map[int64]usecase.ExternalStatType, 256)
+	payloads := make([]rawdata.Payload, 0, 4)
+
+	page := 1
+	for {
+		query := map[string]string{
+			"page":     strconv.Itoa(page),
+			"per_page": "1000",
+		}
+		var envelope coreTypesEnvelope
+		raw, err := c.doJSON(ctx, path, query, &envelope)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch statistic types page=%d: %w", page, err)
+		}
+		payloads = append(payloads, buildAPIPayload(path, query, raw))
+
+		for _, item := range envelope.Data {
+			if item.ID <= 0 {
+				continue
+			}
+			current := typesByID[item.ID]
+			current.ExternalTypeID = item.ID
+			current.Name = firstNonEmpty(current.Name, strings.TrimSpace(item.Name))
+			current.DeveloperName = firstNonEmpty(current.DeveloperName, strings.TrimSpace(item.DeveloperName))
+			current.Code = firstNonEmpty(current.Code, strings.TrimSpace(item.Code))
+			current.ModelType = firstNonEmpty(current.ModelType, strings.TrimSpace(item.ModelType))
+			current.StatGroup = firstNonEmpty(current.StatGroup, strings.TrimSpace(item.StatGroup))
+			current.Metadata = map[string]any{
+				"name":           strings.TrimSpace(item.Name),
+				"developer_name": strings.TrimSpace(item.DeveloperName),
+				"code":           strings.TrimSpace(item.Code),
+				"model_type":     strings.TrimSpace(item.ModelType),
+				"stat_group":     strings.TrimSpace(item.StatGroup),
+			}
+			typesByID[item.ID] = current
+		}
+
+		nextPage, hasMore := nextPageFromPayload(raw, page)
+		if !hasMore {
+			break
+		}
+		page = nextPage
+	}
+
+	out := make([]usecase.ExternalStatType, 0, len(typesByID))
+	for _, item := range typesByID {
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].ExternalTypeID < out[j].ExternalTypeID
+	})
+	return out, payloads, nil
+}
+
+func (c *Client) FetchTeamStatisticsBySeason(ctx context.Context, seasonID int64) ([]usecase.ExternalTeamStatValue, []rawdata.Payload, error) {
+	rows, payloads, err := c.fetchSeasonStatisticsRows(ctx, "teams", seasonID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return parseTeamSeasonStatistics(rows, seasonID), payloads, nil
+}
+
+func (c *Client) FetchPlayerStatisticsBySeason(ctx context.Context, seasonID int64) ([]usecase.ExternalPlayerStatValue, []rawdata.Payload, error) {
+	rows, payloads, err := c.fetchSeasonStatisticsRows(ctx, "players", seasonID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return parsePlayerSeasonStatistics(rows, seasonID), payloads, nil
+}
+
+func (c *Client) fetchSeasonStatisticsRows(ctx context.Context, participant string, seasonID int64) ([]map[string]any, []rawdata.Payload, error) {
+	if seasonID <= 0 {
+		return nil, nil, fmt.Errorf("season id must be greater than zero")
+	}
+
+	participant = strings.TrimSpace(strings.ToLower(participant))
+	if participant == "" {
+		return nil, nil, fmt.Errorf("statistics participant is required")
+	}
+
+	var (
+		lastErr error
+		rows    []map[string]any
+		payload []rawdata.Payload
+	)
+	for _, candidate := range statisticsParticipantCandidates(participant) {
+		rows, payload, lastErr = c.fetchSeasonStatisticsRowsForParticipant(ctx, candidate, seasonID)
+		if lastErr == nil {
+			return rows, payload, nil
+		}
+		if !isProviderNotFound(lastErr) {
+			return nil, nil, lastErr
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("provider returned no data")
+	}
+	return nil, nil, lastErr
+}
+
+func (c *Client) fetchSeasonStatisticsRowsForParticipant(ctx context.Context, participant string, seasonID int64) ([]map[string]any, []rawdata.Payload, error) {
+	path := fmt.Sprintf("/statistics/seasons/%s/%d", participant, seasonID)
+	payloads := make([]rawdata.Payload, 0, 4)
+	rows := make([]map[string]any, 0, 1024)
+
+	page := 1
+	for {
+		query := map[string]string{
+			"include":  defaultIncludeSeasonStats,
+			"page":     strconv.Itoa(page),
+			"per_page": "1000",
+		}
+		var envelope statisticsSeasonEnvelope
+		raw, err := c.doJSON(ctx, path, query, &envelope)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch season statistics participant=%s season_id=%d page=%d: %w", participant, seasonID, page, err)
+		}
+		payloads = append(payloads, buildAPIPayload(path, query, raw))
+		rows = append(rows, envelope.Data...)
+
+		nextPage, hasMore := nextPageFromPayload(raw, page)
+		if !hasMore {
+			break
+		}
+		page = nextPage
+	}
+	return rows, payloads, nil
+}
+
+func statisticsParticipantCandidates(value string) []string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	switch value {
+	case "players", "player":
+		return []string{"players", "player"}
+	case "teams", "team":
+		return []string{"teams", "team"}
+	default:
+		return []string{value}
+	}
+}
+
+func isProviderNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "status=404")
 }
 
 func (c *Client) doJSON(ctx context.Context, path string, query map[string]string, target any) ([]byte, error) {
@@ -700,75 +885,78 @@ func selectFixtureIDsForDetailHydration(fixtures map[int64]usecase.ExternalFixtu
 		return nil
 	}
 
-	pastCutoff := now.Add(-14 * 24 * time.Hour)
-	futureCutoff := now.Add(30 * 24 * time.Hour)
-
 	type candidate struct {
-		id      int64
-		kickoff time.Time
+		id       int64
+		kickoff  time.Time
+		gameweek int
 	}
 
-	past := make([]candidate, 0, len(fixtures))
-	future := make([]candidate, 0, len(fixtures))
-
+	candidates := make([]candidate, 0, len(fixtures))
 	for id, item := range fixtures {
-		if id <= 0 || item.KickoffAt.IsZero() {
+		if id <= 0 || item.KickoffAt.IsZero() || item.Gameweek <= 0 {
 			continue
 		}
-		kickoff := item.KickoffAt.UTC()
-		if kickoff.Before(pastCutoff) || kickoff.After(futureCutoff) {
+		candidates = append(candidates, candidate{
+			id:       id,
+			kickoff:  item.KickoffAt.UTC(),
+			gameweek: item.Gameweek,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	closest := candidates[0]
+	closestDiff := absDuration(now.Sub(closest.kickoff))
+	for _, item := range candidates[1:] {
+		diff := absDuration(now.Sub(item.kickoff))
+		if diff < closestDiff || (diff == closestDiff && item.kickoff.Before(closest.kickoff)) {
+			closest = item
+			closestDiff = diff
+		}
+	}
+
+	targetGameweeks := map[int]struct{}{
+		closest.gameweek: {},
+	}
+	if closest.gameweek > 1 {
+		targetGameweeks[closest.gameweek-1] = struct{}{}
+	}
+	targetGameweeks[closest.gameweek+1] = struct{}{}
+
+	selected := make([]candidate, 0, len(candidates))
+	for _, item := range candidates {
+		if _, ok := targetGameweeks[item.gameweek]; !ok {
 			continue
 		}
-		row := candidate{id: id, kickoff: kickoff}
-		if kickoff.Before(now) {
-			past = append(past, row)
-		} else {
-			future = append(future, row)
-		}
+		selected = append(selected, item)
 	}
-
-	sort.SliceStable(past, func(i, j int) bool {
-		if !past[i].kickoff.Equal(past[j].kickoff) {
-			return past[i].kickoff.After(past[j].kickoff)
-		}
-		return past[i].id < past[j].id
-	})
-	sort.SliceStable(future, func(i, j int) bool {
-		if !future[i].kickoff.Equal(future[j].kickoff) {
-			return future[i].kickoff.Before(future[j].kickoff)
-		}
-		return future[i].id < future[j].id
-	})
-
-	limitPast := fixtureDetailMaxIDs / 2
-	if len(past) < limitPast {
-		limitPast = len(past)
-	}
-	limitFuture := fixtureDetailMaxIDs - limitPast
-	if len(future) < limitFuture {
-		limitFuture = len(future)
-		remaining := fixtureDetailMaxIDs - limitFuture
-		if len(past) < remaining {
-			remaining = len(past)
-		}
-		limitPast = remaining
-	}
-
-	selected := make([]candidate, 0, limitPast+limitFuture)
-	selected = append(selected, past[:limitPast]...)
-	selected = append(selected, future[:limitFuture]...)
 	sort.SliceStable(selected, func(i, j int) bool {
+		if selected[i].gameweek != selected[j].gameweek {
+			return selected[i].gameweek < selected[j].gameweek
+		}
 		if !selected[i].kickoff.Equal(selected[j].kickoff) {
 			return selected[i].kickoff.Before(selected[j].kickoff)
 		}
 		return selected[i].id < selected[j].id
 	})
 
+	if len(selected) > fixtureDetailMaxIDs {
+		selected = selected[:fixtureDetailMaxIDs]
+	}
+
 	out := make([]int64, 0, len(selected))
 	for _, item := range selected {
 		out = append(out, item.id)
 	}
 	return out
+}
+
+func absDuration(value time.Duration) time.Duration {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func extractStandingDetails(raw any) []map[string]any {
@@ -793,6 +981,325 @@ func extractStandingDetails(raw any) []map[string]any {
 	default:
 		return nil
 	}
+}
+
+func parseTeamSeasonStatistics(rows []map[string]any, fallbackSeasonID int64) []usecase.ExternalTeamStatValue {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	out := make([]usecase.ExternalTeamStatValue, 0, len(rows)*4)
+	for _, row := range rows {
+		items := parseSeasonStatisticRow(row, fallbackSeasonID)
+		for _, item := range items {
+			if item.teamExternalID <= 0 || item.statTypeExternalID <= 0 {
+				continue
+			}
+			out = append(out, usecase.ExternalTeamStatValue{
+				SeasonRefID:        item.seasonRefID,
+				TeamExternalID:     item.teamExternalID,
+				FixtureExternalID:  item.fixtureExternalID,
+				StatTypeExternalID: item.statTypeExternalID,
+				StatTypeName:       item.statTypeName,
+				StatKey:            item.statKey,
+				Scope:              item.scope,
+				ValueNum:           cloneFloat64Ptr(item.valueNum),
+				ValueText:          item.valueText,
+				ValueJSON:          normalizeMap(item.valueJSON),
+				SourceUpdatedAt:    cloneTime(item.sourceUpdatedAt),
+				Metadata:           normalizeMap(item.metadata),
+			})
+		}
+	}
+	return out
+}
+
+func parsePlayerSeasonStatistics(rows []map[string]any, fallbackSeasonID int64) []usecase.ExternalPlayerStatValue {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	out := make([]usecase.ExternalPlayerStatValue, 0, len(rows)*4)
+	for _, row := range rows {
+		items := parseSeasonStatisticRow(row, fallbackSeasonID)
+		for _, item := range items {
+			if item.playerExternalID <= 0 || item.statTypeExternalID <= 0 {
+				continue
+			}
+			out = append(out, usecase.ExternalPlayerStatValue{
+				SeasonRefID:        item.seasonRefID,
+				PlayerExternalID:   item.playerExternalID,
+				TeamExternalID:     item.teamExternalID,
+				FixtureExternalID:  item.fixtureExternalID,
+				StatTypeExternalID: item.statTypeExternalID,
+				StatTypeName:       item.statTypeName,
+				StatKey:            item.statKey,
+				Scope:              item.scope,
+				ValueNum:           cloneFloat64Ptr(item.valueNum),
+				ValueText:          item.valueText,
+				ValueJSON:          normalizeMap(item.valueJSON),
+				SourceUpdatedAt:    cloneTime(item.sourceUpdatedAt),
+				Metadata:           normalizeMap(item.metadata),
+			})
+		}
+	}
+	return out
+}
+
+type parsedSeasonStatistic struct {
+	seasonRefID       int64
+	teamExternalID    int64
+	playerExternalID  int64
+	fixtureExternalID int64
+
+	statTypeExternalID int64
+	statTypeName       string
+	statKey            string
+	scope              string
+
+	valueNum        *float64
+	valueText       string
+	valueJSON       map[string]any
+	sourceUpdatedAt *time.Time
+	metadata        map[string]any
+}
+
+func parseSeasonStatisticRow(row map[string]any, fallbackSeasonID int64) []parsedSeasonStatistic {
+	if len(row) == 0 {
+		return nil
+	}
+
+	seasonID := getInt64(row, "season_id")
+	if seasonID <= 0 {
+		seasonID = fallbackSeasonID
+	}
+	teamID := getInt64AnyMap(row, "team_id", "participant_id")
+	if teamID <= 0 {
+		participant := relationDataMap(row["participant"])
+		teamID = getInt64(participant, "id")
+	}
+	playerID := getInt64AnyMap(row, "player_id")
+	if playerID <= 0 {
+		participant := relationDataMap(row["participant"])
+		playerID = getInt64(participant, "id")
+	}
+	fixtureID := getInt64AnyMap(row, "fixture_id", "match_id")
+	sourceUpdatedAt := parseProviderDateTime(firstNonEmpty(
+		getString(row, "updated_at"),
+		getString(row, "last_processed_at"),
+	))
+
+	details := extractStandingDetails(row["details"])
+	if len(details) == 0 {
+		if getInt64(row, "type_id") > 0 || row["value"] != nil || row["total"] != nil {
+			details = []map[string]any{row}
+		}
+	}
+
+	out := make([]parsedSeasonStatistic, 0, len(details))
+	for _, detail := range details {
+		typeInfo := relationDataMap(detail["type"])
+		typeID := getInt64(detail, "type_id")
+		if typeID <= 0 {
+			typeID = getInt64(typeInfo, "id")
+		}
+		if typeID <= 0 {
+			continue
+		}
+
+		typeName := firstNonEmpty(
+			getString(typeInfo, "developer_name"),
+			getString(typeInfo, "name"),
+			getString(typeInfo, "code"),
+			getString(detail, "type"),
+		)
+		statKey := normalizeStatTypeName(typeName)
+		if statKey == "" {
+			statKey = fmt.Sprintf("type-%d", typeID)
+		}
+
+		value := detail["value"]
+		if value == nil {
+			value = detail["total"]
+		}
+		if value == nil {
+			value = detail["data"]
+		}
+		scopedValues := expandSeasonStatisticValue(value)
+		if len(scopedValues) == 0 {
+			scopedValues = []scopedStatisticValue{{scope: "total", value: value}}
+		}
+
+		for _, scoped := range scopedValues {
+			numeric, ok := extractNumericValue(scoped.value)
+			var numPtr *float64
+			if ok {
+				numPtr = &numeric
+			}
+
+			out = append(out, parsedSeasonStatistic{
+				seasonRefID:        seasonID,
+				teamExternalID:     teamID,
+				playerExternalID:   playerID,
+				fixtureExternalID:  fixtureID,
+				statTypeExternalID: typeID,
+				statTypeName:       strings.TrimSpace(typeName),
+				statKey:            statKey,
+				scope:              normalizeStatisticScope(scoped.scope),
+				valueNum:           numPtr,
+				valueText:          extractTextValue(scoped.value, ok),
+				valueJSON:          buildStatisticValueJSON(scoped.value, detail),
+				sourceUpdatedAt:    cloneTime(sourceUpdatedAt),
+				metadata:           buildStatisticMetadata(row, detail),
+			})
+		}
+	}
+
+	return out
+}
+
+type scopedStatisticValue struct {
+	scope string
+	value any
+}
+
+func expandSeasonStatisticValue(value any) []scopedStatisticValue {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case map[string]any:
+		out := make([]scopedStatisticValue, 0, len(typed))
+		for _, key := range []string{"total", "all", "overall", "value", "home", "away", "first_half", "second_half"} {
+			v, ok := typed[key]
+			if !ok {
+				continue
+			}
+			out = append(out, scopedStatisticValue{
+				scope: key,
+				value: v,
+			})
+		}
+		if len(out) > 0 {
+			return out
+		}
+		for key, item := range typed {
+			out = append(out, scopedStatisticValue{
+				scope: key,
+				value: item,
+			})
+		}
+		return out
+	default:
+		return []scopedStatisticValue{{
+			scope: "total",
+			value: typed,
+		}}
+	}
+}
+
+func extractNumericValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	case map[string]any:
+		for _, key := range []string{"value", "total", "all", "overall"} {
+			if parsed, ok := extractNumericValue(typed[key]); ok {
+				return parsed, true
+			}
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+func extractTextValue(value any, alreadyNumeric bool) string {
+	if value == nil || alreadyNumeric {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case bool, int, int64, float32, float64:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	default:
+		return ""
+	}
+}
+
+func buildStatisticValueJSON(value any, detail map[string]any) map[string]any {
+	out := map[string]any{
+		"value": value,
+	}
+	if len(detail) > 0 {
+		out["raw_detail"] = detail
+	}
+	return out
+}
+
+func buildStatisticMetadata(row map[string]any, detail map[string]any) map[string]any {
+	out := map[string]any{
+		"row_id":    getInt64(row, "id"),
+		"detail_id": getInt64(detail, "id"),
+	}
+	if participant := relationDataMap(row["participant"]); len(participant) > 0 {
+		out["participant"] = participant
+	}
+	return out
+}
+
+func getInt64AnyMap(src map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		if value := getInt64(src, key); value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func normalizeStatisticScope(scope string) string {
+	scope = strings.TrimSpace(strings.ToLower(scope))
+	scope = strings.ReplaceAll(scope, "-", "_")
+	scope = strings.ReplaceAll(scope, " ", "_")
+	switch scope {
+	case "", "all", "overall", "value":
+		return "total"
+	default:
+		return scope
+	}
+}
+
+func nextPageFromPayload(raw []byte, currentPage int) (int, bool) {
+	var envelope map[string]any
+	if err := sonic.Unmarshal(raw, &envelope); err != nil {
+		return 0, false
+	}
+	pagination := relationDataMap(envelope["pagination"])
+	if len(pagination) == 0 {
+		return 0, false
+	}
+
+	hasMore := asBool(pagination["has_more"])
+	nextPage := int(asFloat64(pagination["next_page"]))
+	if nextPage <= currentPage {
+		nextPage = currentPage + 1
+	}
+	if !hasMore {
+		return 0, false
+	}
+	return nextPage, true
 }
 
 func parseStandingsPayload(raw []byte, direct []map[string]any) []usecase.ExternalStanding {
@@ -1532,15 +2039,20 @@ func normalizePositionName(value string) string {
 }
 
 type extractedPlayerDetail struct {
-	minutesPlayed int
-	goals         int
-	assists       int
-	yellowCards   int
-	redCards      int
-	saves         int
-	goalsConceded int
-	cleanSheet    bool
-	advanced      map[string]any
+	minutesPlayed   int
+	goals           int
+	assists         int
+	yellowCards     int
+	redCards        int
+	saves           int
+	goalsConceded   int
+	ownGoals        int
+	penaltiesSaved  int
+	penaltiesMissed int
+	bps             int
+	bonusPoints     int
+	cleanSheet      bool
+	advanced        map[string]any
 }
 
 func extractPlayerDetailStats(details []lineupDetailItem) extractedPlayerDetail {
@@ -1573,12 +2085,22 @@ func extractPlayerDetailStats(details []lineupDetailItem) extractedPlayerDetail 
 			out.assists = value
 		case strings.Contains(typeKey, "yellow"):
 			out.yellowCards = value
-		case strings.Contains(typeKey, "red"):
+		case strings.Contains(typeKey, "yellowred"), strings.Contains(typeKey, "red"):
 			out.redCards = value
 		case strings.Contains(typeKey, "saves"):
 			out.saves = value
 		case strings.Contains(typeKey, "goals conceded"):
 			out.goalsConceded = value
+		case strings.Contains(typeKey, "own goals"), strings.Contains(typeKey, "own goal"):
+			out.ownGoals = value
+		case strings.Contains(typeKey, "penalties saved"), strings.Contains(typeKey, "penalty saved"):
+			out.penaltiesSaved = value
+		case strings.Contains(typeKey, "penalties missed"), strings.Contains(typeKey, "penalty missed"):
+			out.penaltiesMissed = value
+		case typeKey == "bps", strings.Contains(typeKey, "bonus points system"):
+			out.bps = value
+		case strings.Contains(typeKey, "bonus points"):
+			out.bonusPoints = value
 		case strings.Contains(typeKey, "clean sheet"):
 			out.cleanSheet = value > 0
 		}
@@ -1589,23 +2111,109 @@ func extractPlayerDetailStats(details []lineupDetailItem) extractedPlayerDetail 
 
 func estimateFantasyPoints(stat usecase.ExternalPlayerFixtureStat) int {
 	points := 0
-	points += stat.Goals * 5
-	points += stat.Assists * 3
-	if stat.CleanSheet {
-		points += 4
+	switch strings.ToUpper(strings.TrimSpace(stat.Position)) {
+	case "GK", "DEF":
+		points += stat.Goals * 6
+	case "MID":
+		points += stat.Goals * 5
+	default:
+		points += stat.Goals * 4
 	}
+	points += stat.Assists * 3
+
+	if stat.CleanSheet && stat.MinutesPlayed >= 60 {
+		switch strings.ToUpper(strings.TrimSpace(stat.Position)) {
+		case "GK", "DEF":
+			points += 4
+		case "MID":
+			points += 1
+		}
+	}
+
+	if (strings.EqualFold(stat.Position, "GK") || strings.EqualFold(stat.Position, "DEF")) && stat.GoalsConceded > 0 {
+		points -= stat.GoalsConceded / 2
+	}
+
+	if strings.EqualFold(stat.Position, "GK") && stat.Saves > 0 {
+		points += stat.Saves / 3
+	}
+
+	if strings.EqualFold(stat.Position, "GK") && stat.PenaltiesSaved > 0 {
+		points += stat.PenaltiesSaved * 5
+	}
+	points -= stat.PenaltiesMissed * 2
+	points -= stat.OwnGoals * 2
 	points -= stat.YellowCards
 	points -= stat.RedCards * 3
-	points += stat.Saves / 3
+
 	if stat.MinutesPlayed >= 60 {
 		points += 2
 	} else if stat.MinutesPlayed > 0 {
 		points += 1
 	}
-	if points < 0 {
-		return 0
-	}
+
+	points += stat.BonusPoints
 	return points
+}
+
+func applyFPLBonusByBPS(fixtureExternalID int64, stats map[string]usecase.ExternalPlayerFixtureStat) {
+	if fixtureExternalID <= 0 || len(stats) == 0 {
+		return
+	}
+
+	type row struct {
+		key string
+		bps int
+	}
+	rows := make([]row, 0, 32)
+	prefix := fmt.Sprintf("%d:", fixtureExternalID)
+	for key, item := range stats {
+		if !strings.HasPrefix(key, prefix) || item.BPS <= 0 {
+			continue
+		}
+		rows = append(rows, row{
+			key: key,
+			bps: item.BPS,
+		})
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].bps != rows[j].bps {
+			return rows[i].bps > rows[j].bps
+		}
+		return rows[i].key < rows[j].key
+	})
+
+	position := 1
+	for i := 0; i < len(rows); {
+		j := i + 1
+		for j < len(rows) && rows[j].bps == rows[i].bps {
+			j++
+		}
+
+		bonus := 0
+		switch position {
+		case 1:
+			bonus = 3
+		case 2:
+			bonus = 2
+		case 3:
+			bonus = 1
+		default:
+			return
+		}
+
+		for _, item := range rows[i:j] {
+			value := stats[item.key]
+			value.BonusPoints = bonus
+			stats[item.key] = value
+		}
+		position += (j - i)
+		i = j
+	}
 }
 
 func mapFixtureEvent(fixtureExternalID int64, source fixtureEventItem) usecase.ExternalFixtureEvent {
@@ -1880,6 +2488,14 @@ func maxInt(left, right int) int {
 
 type scheduleEnvelope struct {
 	Data []scheduleStage `json:"data"`
+}
+
+type coreTypesEnvelope struct {
+	Data []statTypeRef `json:"data"`
+}
+
+type statisticsSeasonEnvelope struct {
+	Data []map[string]any `json:"data"`
 }
 
 type scheduleStage struct {
@@ -2185,4 +2801,40 @@ func asFloat64(value any) float64 {
 	default:
 		return 0
 	}
+}
+
+func asBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case float64:
+		return typed > 0
+	case float32:
+		return typed > 0
+	case int:
+		return typed > 0
+	case int64:
+		return typed > 0
+	case string:
+		v := strings.ToLower(strings.TrimSpace(typed))
+		return v == "true" || v == "1" || v == "yes"
+	default:
+		return false
+	}
+}
+
+func cloneFloat64Ptr(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	v := *value
+	return &v
+}
+
+func cloneTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	v := value.UTC()
+	return &v
 }

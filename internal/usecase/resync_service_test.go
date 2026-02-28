@@ -90,6 +90,18 @@ func (stubResyncProvider) FetchLiveStandingsByLeague(_ context.Context, _ int64)
 	return nil, nil, nil
 }
 
+func (stubResyncProvider) FetchStatisticTypes(_ context.Context) ([]ExternalStatType, []rawdata.Payload, error) {
+	return nil, nil, nil
+}
+
+func (stubResyncProvider) FetchTeamStatisticsBySeason(_ context.Context, _ int64) ([]ExternalTeamStatValue, []rawdata.Payload, error) {
+	return nil, nil, nil
+}
+
+func (stubResyncProvider) FetchPlayerStatisticsBySeason(_ context.Context, _ int64) ([]ExternalPlayerStatValue, []rawdata.Payload, error) {
+	return nil, nil, nil
+}
+
 type stubResyncTeamRepo struct{}
 
 func (stubResyncTeamRepo) ListByLeague(_ context.Context, _ string) ([]team.Team, error) {

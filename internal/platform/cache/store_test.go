@@ -79,4 +79,43 @@ func TestStore_GetOrLoad_UsesCachedValueAfterFirstLoad(t *testing.T) {
 	}
 }
 
+func TestStore_Set_EvictsOldestWhenCapacityReached(t *testing.T) {
+	t.Parallel()
+
+	store := NewStoreWithLimit(time.Minute, 2)
+	ctx := context.Background()
+
+	store.Set(ctx, "first", 1)
+	store.Set(ctx, "second", 2)
+	store.Set(ctx, "third", 3)
+
+	if _, ok := store.Get(ctx, "first"); ok {
+		t.Fatalf("expected first key to be evicted")
+	}
+	if v, ok := store.Get(ctx, "second"); !ok || v.(int) != 2 {
+		t.Fatalf("expected second key to remain")
+	}
+	if v, ok := store.Get(ctx, "third"); !ok || v.(int) != 3 {
+		t.Fatalf("expected third key to remain")
+	}
+}
+
+func TestStore_Set_PrunesExpiredBeforeEviction(t *testing.T) {
+	t.Parallel()
+
+	store := NewStoreWithLimit(5*time.Millisecond, 1)
+	ctx := context.Background()
+
+	store.Set(ctx, "expired", 1)
+	time.Sleep(10 * time.Millisecond)
+	store.Set(ctx, "fresh", 2)
+
+	if _, ok := store.Get(ctx, "expired"); ok {
+		t.Fatalf("expected expired key to be removed")
+	}
+	if v, ok := store.Get(ctx, "fresh"); !ok || v.(int) != 2 {
+		t.Fatalf("expected fresh key to exist")
+	}
+}
+
 var errUnexpectedValue = errors.New("unexpected loaded value")

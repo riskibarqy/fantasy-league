@@ -39,12 +39,18 @@ func TestInitBetterStackLogger_SendsErrorLog(t *testing.T) {
 		AppEnv:              config.EnvDev,
 	}
 
-	logger, _, err := InitBetterStackLogger(cfg, baseLogger)
+	logger, shutdown, err := InitBetterStackLogger(cfg, baseLogger)
 	if err != nil {
 		t.Fatalf("init betterstack logger: %v", err)
 	}
 
 	logger.ErrorContext(context.Background(), "backend error", "component", "httpapi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		t.Fatalf("shutdown logger: %v", err)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -80,12 +86,18 @@ func TestInitBetterStackLogger_RespectsMinLevel(t *testing.T) {
 		AppEnv:              config.EnvDev,
 	}
 
-	logger, _, err := InitBetterStackLogger(cfg, baseLogger)
+	logger, shutdown, err := InitBetterStackLogger(cfg, baseLogger)
 	if err != nil {
 		t.Fatalf("init betterstack logger: %v", err)
 	}
 
 	logger.InfoContext(context.Background(), "info log should not be shipped")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		t.Fatalf("shutdown logger: %v", err)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()

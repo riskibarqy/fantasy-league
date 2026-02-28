@@ -13,6 +13,7 @@ type Repository interface {
 	ListDefaultGroupsByLeague(ctx context.Context, leagueID string) ([]Group, error)
 	ListDefaultGroupsByLeagueAndCountry(ctx context.Context, leagueID, countryCode string) ([]Group, error)
 	ListMembershipsByGroup(ctx context.Context, groupID string) ([]Membership, error)
+	ListMembershipsByLeague(ctx context.Context, leagueID string) ([]Membership, error)
 	ListStandingsByUser(ctx context.Context, userID string) ([]Standing, error)
 	UpsertMembershipAndStanding(ctx context.Context, membership Membership, standing Standing) error
 	UpdateStandings(ctx context.Context, groupID string, standings []Standing) error

@@ -82,4 +82,12 @@ func registerAuthorizedIngestionRoutes(mux *http.ServeMux, handler *Handler, ver
 	mux.Handle("POST /v1/internal/ingestion/standings", RequireAuth(verifier, http.HandlerFunc(handler.IngestLeagueStandings)))
 	mux.Handle("POST /v1/internal/sync/schedule", RequireAuth(verifier, http.HandlerFunc(handler.RunSyncScheduleDirect)))
 	mux.Handle("POST /v1/internal/sync/resync", RequireAuth(verifier, http.HandlerFunc(handler.RunResync)))
+	// Master data sync for season initialization (teams + players + stat types catalogs).
+	mux.Handle("POST /v1/internal/sync/master-data", RequireAuth(verifier, http.HandlerFunc(handler.RunSyncMasterData)))
+	// Team schedule sync focused on fixtures/timeline refresh.
+	mux.Handle("POST /v1/internal/sync/team-schedule", RequireAuth(verifier, http.HandlerFunc(handler.RunSyncTeamSchedule)))
+	// Reconcile sync for repairing data mismatches across fixtures/stats/standings.
+	mux.Handle("POST /v1/internal/sync/reconcile", RequireAuth(verifier, http.HandlerFunc(handler.RunSyncReconcile)))
+	// Get a previously executed sync result by run id.
+	mux.Handle("GET /v1/internal/sync/runs/{runID}", RequireAuth(verifier, http.HandlerFunc(handler.GetSyncRun)))
 }

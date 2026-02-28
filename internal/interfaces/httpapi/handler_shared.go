@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -23,6 +24,11 @@ import (
 	"github.com/riskibarqy/fantasy-league/internal/domain/team"
 	"github.com/riskibarqy/fantasy-league/internal/domain/teamstats"
 	"github.com/riskibarqy/fantasy-league/internal/usecase"
+)
+
+const (
+	defaultSyncRunRetention  = 24 * time.Hour
+	defaultSyncRunMaxEntries = 200
 )
 
 type Handler struct {
@@ -43,6 +49,10 @@ type Handler struct {
 	jobDispatchRepo       jobscheduler.Repository
 	logger                *logging.Logger
 	validator             *validator.Validate
+	syncRunsMu            sync.RWMutex
+	syncRuns              map[string]syncRunRecord
+	syncRunMaxEntries     int
+	syncRunRetention      time.Duration
 }
 
 func NewHandler(
@@ -85,6 +95,9 @@ func NewHandler(
 		jobDispatchRepo:       jobDispatchRepo,
 		logger:                logger,
 		validator:             validator.New(),
+		syncRuns:              make(map[string]syncRunRecord),
+		syncRunMaxEntries:     defaultSyncRunMaxEntries,
+		syncRunRetention:      defaultSyncRunRetention,
 	}
 }
 func (h *Handler) validateRequest(ctx context.Context, payload any) error {
