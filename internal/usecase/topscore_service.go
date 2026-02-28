@@ -29,7 +29,7 @@ func (s *TopScoreService) ListTopScorer(ctx context.Context, leagueID string, se
 	if season == "" {
 		return nil, fmt.Errorf("%w: season is required", ErrInvalidInput)
 	}
-
+	resp = make(map[string][]topscorers.TopScorers, len(TopScoreTypeMap))
 	for k, v := range TopScoreTypeMap {
 		result, err := s.repo.ListTopScorersBySeasonAndTypeID(ctx, leagueID, season, v)
 		if err != nil {

@@ -1,6 +1,10 @@
 package httpapi
 
-import "net/http"
+import (
+	"github.com/riskibarqy/fantasy-league/internal/usecase"
+	"net/http"
+	"strings"
+)
 
 func (h *Handler) ListTopScorerByLeagueAndSeason(w http.ResponseWriter, r *http.Request) {
 	ctx, span := startSpan(r.Context(), "httpapi.Handler.ListPlayersByLeague")
@@ -8,14 +12,15 @@ func (h *Handler) ListTopScorerByLeagueAndSeason(w http.ResponseWriter, r *http.
 
 	leagueID := r.PathValue("leagueID")
 	season := r.PathValue("season")
-	topScorers, err := h.topScoreService.ListTopScorer(ctx, leagueID, season)
+	s := strings.ReplaceAll(season, "-", "/")
+	topScorers, err := h.topScoreService.ListTopScorer(ctx, leagueID, s)
 	if err != nil {
-		h.logger.WarnContext(ctx, "list players failed", "league_id", leagueID, "error", err)
+		h.logger.WarnContext(ctx, "list top score failed", "league_id", leagueID, "error", err)
 		writeError(ctx, w, err)
 		return
 	}
 
-	res := make(map[string][]TopScorePublicDTO)
+	res := make(map[string][]TopScorePublicDTO, len(usecase.TopScoreTypeMap))
 	for k, p := range topScorers {
 		for _, item := range p {
 			res[k] = append(res[k], TopScorePublicDTO{
