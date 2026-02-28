@@ -15,6 +15,7 @@
 
 # Logs and env
 *.log
+docker-compose.yml
 .env
 .env.local
 .env.*.local

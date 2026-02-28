@@ -40,6 +40,7 @@ type Handler struct {
 	sportDataSyncService  *usecase.SportDataSyncService
 	customLeagueService   *usecase.CustomLeagueService
 	onboardingService     *usecase.OnboardingService
+	topScoreService       *usecase.TopScoreService
 	jobDispatchRepo       jobscheduler.Repository
 	logger                *slog.Logger
 	validator             *validator.Validate
@@ -61,6 +62,7 @@ func NewHandler(
 	customLeagueService *usecase.CustomLeagueService,
 	onboardingService *usecase.OnboardingService,
 	jobDispatchRepo jobscheduler.Repository,
+	topScoreService *usecase.TopScoreService,
 	logger *slog.Logger,
 ) *Handler {
 	if logger == nil {
@@ -83,6 +85,7 @@ func NewHandler(
 		customLeagueService:   customLeagueService,
 		onboardingService:     onboardingService,
 		jobDispatchRepo:       jobDispatchRepo,
+		topScoreService:       topScoreService,
 		logger:                logger,
 		validator:             validator.New(),
 	}
@@ -363,6 +366,24 @@ type playerPublicDTO struct {
 	ImageURL        string   `json:"imageUrl"`
 	TeamLogoURL     string   `json:"teamLogoUrl"`
 	TeamColor       []string `json:"teamColor,omitempty"`
+}
+
+type TopScorePublicDTO struct {
+	TypeID           int64  `json:"typeId"`
+	TypeName         string `json:"typeName"`
+	Rank             int    `json:"rank"`
+	Total            int    `json:"total"`
+	LeagueID         int64  `json:"leagueID"`
+	PlayerID         int64  `json:"playerID"`
+	Season           string `json:"season"`
+	ParticipantID    int64  `json:"participantID"`
+	PlayerName       string `json:"playerName"`
+	ImagePlayer      string `json:"imagePlayer"`
+	Nationality      string `json:"nationality"`
+	ImageNationality string `json:"imageNationality"`
+	ParticipantName  string `json:"participantName"`
+	ImageParticipant string `json:"imageParticipant"`
+	PositionName     string `json:"positionName"`
 }
 
 type squadPlayerDTO struct {

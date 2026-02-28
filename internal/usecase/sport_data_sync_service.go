@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/domain/topscorers"
 	"log/slog"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ type SportDataSyncProvider interface {
 	FetchFixturesBySeason(ctx context.Context, seasonID int64) ([]ExternalFixture, []rawdata.Payload, error)
 	FetchStandingsBySeason(ctx context.Context, seasonID int64) ([]ExternalStanding, []rawdata.Payload, error)
 	FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int64) ([]ExternalStanding, []rawdata.Payload, error)
+	FetchTopScorersBySeasonID(ctx context.Context, seasonID, page, typeId int) ([]ExternalTopScorers, bool, error)
 }
 
 type ExternalFixtureBundle struct {
@@ -34,7 +36,23 @@ type ExternalFixtureBundle struct {
 	Events      []ExternalFixtureEvent
 	RawPayloads []rawdata.Payload
 }
-
+type ExternalTopScorers struct {
+	TypeID           int64
+	TypeName         string
+	Rank             int
+	Total            int
+	LeagueID         int64
+	PlayerID         int64
+	Season           string
+	ParticipantID    int64
+	PlayerName       string
+	ImagePlayer      string
+	Nationality      string
+	ImageNationality string
+	ParticipantName  string
+	ImageParticipant string
+	PositionName     string //attacker
+}
 type ExternalFixture struct {
 	ExternalID           int64
 	Gameweek             int
@@ -131,6 +149,7 @@ type SportDataSyncConfig struct {
 }
 
 type SportDataSyncService struct {
+	topScore   topscorers.Repository
 	provider   SportDataSyncProvider
 	teamRepo   team.Repository
 	playerRepo player.Repository
@@ -143,6 +162,7 @@ func NewSportDataSyncService(
 	provider SportDataSyncProvider,
 	teamRepo team.Repository,
 	playerRepo player.Repository,
+	topScoreRepo topscorers.Repository,
 	ingestion *IngestionService,
 	cfg SportDataSyncConfig,
 	logger *slog.Logger,
@@ -155,6 +175,7 @@ func NewSportDataSyncService(
 		provider:   provider,
 		teamRepo:   teamRepo,
 		playerRepo: playerRepo,
+		topScore:   topScoreRepo,
 		ingestion:  ingestion,
 		cfg:        cfg,
 		logger:     logger,
@@ -255,7 +276,7 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 		)
 		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
 	}
-
+	go s.SyncTopScorers(ctx, lg)
 	teamMappings, err := s.loadTeamMappings(ctx, lg.ID)
 	if err != nil {
 		return err
@@ -324,6 +345,75 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 	}
 
 	return nil
+}
+
+func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.League) error {
+	s.logger.Info("Sync top scorers running !")
+	if lg.Season == "" || lg.ID == "" {
+		s.logger.WarnContext(ctx,
+			"skip top scorer sync: sport data provider is not fully configured",
+			"season", lg.Season,
+			"league_id", lg.ID,
+		)
+		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
+	}
+	seasonID, ok := s.cfg.SeasonIDByLeague[strings.TrimSpace(lg.ID)]
+	if !ok || seasonID <= 0 {
+		return nil
+	}
+	process := func(ctx context.Context, seasonID, typeID int) {
+		page := 1
+		dataTopScorers, hasMore, err := s.provider.FetchTopScorersBySeasonID(ctx, seasonID, page, typeID)
+		if err != nil {
+			s.logger.WarnContext(ctx, err.Error())
+			return
+		}
+		for hasMore {
+			page++
+			dataTopScorersAdjustment, hm, err := s.provider.FetchTopScorersBySeasonID(ctx, seasonID, page, typeID)
+			if err != nil {
+				s.logger.WarnContext(ctx, err.Error())
+				return
+			}
+			dataTopScorers = append(dataTopScorers, dataTopScorersAdjustment...)
+			hasMore = hm
+		}
+
+		err = s.topScore.UpsertTopScorers(ctx, mappingToModel(dataTopScorers))
+		if err != nil {
+			s.logger.WarnContext(ctx, err.Error())
+			return
+		}
+	}
+
+	for _, v := range TopScoreTypeMap {
+		go process(ctx, int(seasonID), v)
+	}
+	return nil
+}
+
+func mappingToModel(a []ExternalTopScorers) (scorers []topscorers.TopScorers) {
+	for _, item := range a {
+		scorers = append(scorers, topscorers.TopScorers{
+			TypeID:           item.TypeID,
+			TypeName:         item.TypeName,
+			Rank:             item.Rank,
+			Total:            item.Total,
+			LeagueID:         item.LeagueID,
+			PlayerID:         item.PlayerID,
+			Season:           item.Season,
+			ParticipantID:    item.ParticipantID,
+			PlayerName:       item.PlayerName,
+			ImagePlayer:      item.ImagePlayer,
+			Nationality:      item.Nationality,
+			ImageNationality: item.ImageNationality,
+			ParticipantName:  item.ParticipantName,
+			ImageParticipant: item.ImageParticipant,
+			PositionName:     item.PositionName,
+		})
+	}
+
+	return scorers
 }
 
 type teamMappings struct {
