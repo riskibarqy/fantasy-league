@@ -205,6 +205,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 		ingestionSvc,
 		sportDataSyncSvc,
 		customLeagueSvc,
+		scoringSvc,
 		onboardingSvc,
 		jobDispatchRepo,
 		topScoreSvc,

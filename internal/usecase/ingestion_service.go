@@ -195,13 +195,16 @@ func (s *IngestionService) UpsertRawPayloads(ctx context.Context, source string,
 	return nil
 }
 
-func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID string, live bool, items []leaguestanding.Standing) error {
+func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID string, live bool, gameweek int, items []leaguestanding.Standing) error {
 	ctx, span := startUsecaseSpan(ctx, "usecase.IngestionService.ReplaceLeagueStandings")
 	defer span.End()
 
 	leagueID = strings.TrimSpace(leagueID)
 	if leagueID == "" {
 		return fmt.Errorf("%w: league_id is required", ErrInvalidInput)
+	}
+	if gameweek <= 0 {
+		return fmt.Errorf("%w: gameweek must be greater than zero", ErrInvalidInput)
 	}
 	if s.standingRepo == nil {
 		return nil
@@ -213,6 +216,7 @@ func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID 
 		item.TeamID = strings.TrimSpace(item.TeamID)
 		item.Form = strings.TrimSpace(item.Form)
 		item.IsLive = live
+		item.Gameweek = gameweek
 
 		if item.TeamID == "" {
 			return fmt.Errorf("%w: team_id is required", ErrInvalidInput)
@@ -233,7 +237,7 @@ func (s *IngestionService) ReplaceLeagueStandings(ctx context.Context, leagueID 
 		cleaned = append(cleaned, item)
 	}
 
-	if err := s.standingRepo.ReplaceByLeague(ctx, leagueID, live, cleaned); err != nil {
+	if err := s.standingRepo.ReplaceByLeague(ctx, leagueID, live, gameweek, cleaned); err != nil {
 		return fmt.Errorf("replace league standings: %w", err)
 	}
 	return nil

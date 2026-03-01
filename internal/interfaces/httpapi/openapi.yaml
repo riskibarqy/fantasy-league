@@ -435,6 +435,31 @@ paths:
           $ref: '#/components/responses/GoogleSuccess'
         default:
           $ref: '#/components/responses/GoogleError'
+  /v1/fantasy/points/summary:
+    get:
+      summary: Get my season points summary (total/average/highest)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeagueIDQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
+  /v1/fantasy/points/players:
+    get:
+      summary: Get my player points by gameweek (optional gameweek filter)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LeagueIDQuery'
+        - $ref: '#/components/parameters/GameweekQueryOptional'
+      responses:
+        '200':
+          $ref: '#/components/responses/GoogleSuccess'
+        default:
+          $ref: '#/components/responses/GoogleError'
   /v1/custom-leagues:
     get:
       summary: List my custom leagues
@@ -581,6 +606,13 @@ components:
       required: true
       schema:
         type: string
+    GameweekQueryOptional:
+      in: query
+      name: gameweek
+      required: false
+      schema:
+        type: integer
+        minimum: 1
   responses:
     GoogleSuccess:
       description: Google-style success envelope
@@ -1031,6 +1063,9 @@ components:
           type: string
         is_live:
           type: boolean
+        gameweek:
+          type: integer
+          minimum: 1
         items:
           type: array
           items:

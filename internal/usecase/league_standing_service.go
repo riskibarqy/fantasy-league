@@ -105,6 +105,7 @@ func (s *LeagueStandingService) listFromFixtures(ctx context.Context, leagueID s
 	}
 
 	byTeam := make(map[string]*standingsAggregate)
+	snapshotGameweek := 0
 	getOrInit := func(teamID string) *standingsAggregate {
 		if row, ok := byTeam[teamID]; ok {
 			return row
@@ -132,6 +133,9 @@ func (s *LeagueStandingService) listFromFixtures(ctx context.Context, leagueID s
 
 		if match.HomeScore == nil || match.AwayScore == nil {
 			continue
+		}
+		if match.Gameweek > snapshotGameweek {
+			snapshotGameweek = match.Gameweek
 		}
 
 		homeGoals := *match.HomeScore
@@ -189,11 +193,15 @@ func (s *LeagueStandingService) listFromFixtures(ctx context.Context, leagueID s
 	})
 
 	out := make([]leaguestanding.Standing, 0, len(rows))
+	if snapshotGameweek <= 0 {
+		snapshotGameweek = 1
+	}
 	for idx, row := range rows {
 		out = append(out, leaguestanding.Standing{
 			LeagueID:       leagueID,
 			TeamID:         row.TeamID,
 			IsLive:         live,
+			Gameweek:       snapshotGameweek,
 			Position:       idx + 1,
 			Played:         row.Played,
 			Won:            row.Won,

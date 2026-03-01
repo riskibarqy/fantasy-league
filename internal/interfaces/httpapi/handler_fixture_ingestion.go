@@ -621,6 +621,7 @@ func (h *Handler) IngestLeagueStandings(w http.ResponseWriter, r *http.Request) 
 			LeagueID:        req.LeagueID,
 			TeamID:          item.TeamID,
 			IsLive:          req.IsLive,
+			Gameweek:        req.Gameweek,
 			Position:        item.Position,
 			Played:          item.Played,
 			Won:             item.Won,
@@ -635,7 +636,12 @@ func (h *Handler) IngestLeagueStandings(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 
-	if err := h.ingestionService.ReplaceLeagueStandings(ctx, req.LeagueID, req.IsLive, items); err != nil {
+	gameweek := req.Gameweek
+	if gameweek <= 0 {
+		gameweek = inferStandingsGameweekFromIngest(req.Items)
+	}
+
+	if err := h.ingestionService.ReplaceLeagueStandings(ctx, req.LeagueID, req.IsLive, gameweek, items); err != nil {
 		h.logger.WarnContext(ctx, "ingest league standings failed", "league_id", req.LeagueID, "is_live", req.IsLive, "count", len(items), "error", err)
 		writeError(ctx, w, err)
 		return
@@ -644,9 +650,23 @@ func (h *Handler) IngestLeagueStandings(w http.ResponseWriter, r *http.Request) 
 	writeSuccess(ctx, w, http.StatusOK, map[string]any{
 		"league_id": req.LeagueID,
 		"is_live":   req.IsLive,
+		"gameweek":  gameweek,
 		"count":     len(items),
 		"updated":   true,
 	})
+}
+
+func inferStandingsGameweekFromIngest(items []ingestLeagueStandingRecord) int {
+	maxPlayed := 0
+	for _, item := range items {
+		if item.Played > maxPlayed {
+			maxPlayed = item.Played
+		}
+	}
+	if maxPlayed <= 0 {
+		return 1
+	}
+	return maxPlayed
 }
 
 func marshalPayloadJSON(ctx context.Context, payload map[string]any) (string, error) {

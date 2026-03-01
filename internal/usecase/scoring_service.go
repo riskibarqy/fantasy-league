@@ -32,6 +32,34 @@ type ScoringService struct {
 
 const defaultScoringEnsureInterval = 30 * time.Second
 
+type UserSeasonPointsSummary struct {
+	LeagueID      string
+	UserID        string
+	TotalPoints   int
+	AveragePoints float64
+	HighestPoints int
+	Gameweeks     int
+}
+
+type UserPlayerPoints struct {
+	PlayerID      string
+	Position      string
+	IsStarter     bool
+	IsCaptain     bool
+	IsViceCaptain bool
+	Multiplier    int
+	BasePoints    int
+	CountedPoints int
+}
+
+type UserGameweekPlayerPoints struct {
+	LeagueID    string
+	UserID      string
+	Gameweek    int
+	TotalPoints int
+	Players     []UserPlayerPoints
+}
+
 func NewScoringService(
 	fixtureRepo fixture.Repository,
 	squadRepo fantasy.Repository,
@@ -211,6 +239,122 @@ func (s *ScoringService) GetUserLeagueSummary(ctx context.Context, leagueID, use
 	}
 
 	return totalPoints, rank, nil
+}
+
+func (s *ScoringService) GetUserSeasonPointsSummary(ctx context.Context, leagueID, userID string) (UserSeasonPointsSummary, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.ScoringService.GetUserSeasonPointsSummary")
+	defer span.End()
+
+	if err := s.EnsureLeagueUpToDate(ctx, leagueID); err != nil {
+		return UserSeasonPointsSummary{}, err
+	}
+
+	rows, err := s.scoringRepo.ListUserGameweekPointsByLeague(ctx, leagueID)
+	if err != nil {
+		return UserSeasonPointsSummary{}, fmt.Errorf("list user gameweek points for season summary: %w", err)
+	}
+
+	totalPoints := 0
+	highestPoints := 0
+	gameweeks := 0
+	for _, row := range rows {
+		if row.UserID != userID {
+			continue
+		}
+		totalPoints += row.Points
+		if gameweeks == 0 || row.Points > highestPoints {
+			highestPoints = row.Points
+		}
+		gameweeks++
+	}
+
+	averagePoints := 0.0
+	if gameweeks > 0 {
+		averagePoints = float64(totalPoints) / float64(gameweeks)
+	}
+
+	return UserSeasonPointsSummary{
+		LeagueID:      leagueID,
+		UserID:        userID,
+		TotalPoints:   totalPoints,
+		AveragePoints: averagePoints,
+		HighestPoints: highestPoints,
+		Gameweeks:     gameweeks,
+	}, nil
+}
+
+func (s *ScoringService) ListUserPlayerPointsByLeague(ctx context.Context, leagueID, userID string, gameweek *int) ([]UserGameweekPlayerPoints, error) {
+	ctx, span := startUsecaseSpan(ctx, "usecase.ScoringService.ListUserPlayerPointsByLeague")
+	defer span.End()
+
+	if err := s.EnsureLeagueUpToDate(ctx, leagueID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.scoringRepo.ListUserGameweekPointsByLeague(ctx, leagueID)
+	if err != nil {
+		return nil, fmt.Errorf("list user gameweek points for player points: %w", err)
+	}
+
+	totalByGameweek := make(map[int]int, len(rows))
+	for _, row := range rows {
+		if row.UserID != userID || row.Gameweek <= 0 {
+			continue
+		}
+		totalByGameweek[row.Gameweek] = row.Points
+	}
+
+	gameweeks := make([]int, 0)
+	if gameweek != nil {
+		if *gameweek <= 0 {
+			return nil, fmt.Errorf("%w: gameweek must be greater than zero", ErrInvalidInput)
+		}
+		gameweeks = append(gameweeks, *gameweek)
+	} else {
+		for value := range totalByGameweek {
+			gameweeks = append(gameweeks, value)
+		}
+		sort.Ints(gameweeks)
+	}
+
+	if len(gameweeks) == 0 {
+		return []UserGameweekPlayerPoints{}, nil
+	}
+
+	out := make([]UserGameweekPlayerPoints, 0, len(gameweeks))
+	for _, gw := range gameweeks {
+		lineupSnapshot, exists, err := s.scoringRepo.GetLineupSnapshot(ctx, leagueID, gw, userID)
+		if err != nil {
+			return nil, fmt.Errorf("get lineup snapshot for player points gameweek=%d: %w", gw, err)
+		}
+		if !exists {
+			continue
+		}
+
+		playerPoints, err := s.playerStatsRepo.GetFantasyPointsByLeagueAndGameweek(ctx, leagueID, gw)
+		if err != nil {
+			return nil, fmt.Errorf("get fantasy points by gameweek for player points gameweek=%d: %w", gw, err)
+		}
+
+		players, calculatedTotal := calculateLineupPlayerPoints(lineupSnapshot.Lineup, playerPoints)
+		totalPoints := calculatedTotal
+		if persisted, ok := totalByGameweek[gw]; ok {
+			totalPoints = persisted
+		}
+
+		out = append(out, UserGameweekPlayerPoints{
+			LeagueID:    leagueID,
+			UserID:      userID,
+			Gameweek:    gw,
+			TotalPoints: totalPoints,
+			Players:     players,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Gameweek < out[j].Gameweek
+	})
+	return out, nil
 }
 
 func (s *ScoringService) ensureGameweekLocked(
@@ -420,6 +564,95 @@ func calculateLineupPoints(item lineup.Lineup, playerPoints map[string]int) int 
 	}
 
 	return total
+}
+
+func calculateLineupPlayerPoints(item lineup.Lineup, playerPoints map[string]int) ([]UserPlayerPoints, int) {
+	starters := []UserPlayerPoints{
+		{
+			PlayerID:      item.GoalkeeperID,
+			Position:      "GK",
+			IsStarter:     true,
+			IsCaptain:     item.GoalkeeperID == item.CaptainID,
+			IsViceCaptain: item.GoalkeeperID == item.ViceCaptainID,
+		},
+	}
+
+	for _, playerID := range item.DefenderIDs {
+		starters = append(starters, UserPlayerPoints{
+			PlayerID:      playerID,
+			Position:      "DEF",
+			IsStarter:     true,
+			IsCaptain:     playerID == item.CaptainID,
+			IsViceCaptain: playerID == item.ViceCaptainID,
+		})
+	}
+	for _, playerID := range item.MidfielderIDs {
+		starters = append(starters, UserPlayerPoints{
+			PlayerID:      playerID,
+			Position:      "MID",
+			IsStarter:     true,
+			IsCaptain:     playerID == item.CaptainID,
+			IsViceCaptain: playerID == item.ViceCaptainID,
+		})
+	}
+	for _, playerID := range item.ForwardIDs {
+		starters = append(starters, UserPlayerPoints{
+			PlayerID:      playerID,
+			Position:      "FWD",
+			IsStarter:     true,
+			IsCaptain:     playerID == item.CaptainID,
+			IsViceCaptain: playerID == item.ViceCaptainID,
+		})
+	}
+
+	bench := make([]UserPlayerPoints, 0, len(item.SubstituteIDs))
+	benchSlots := []string{"GK", "DEF", "MID", "FWD"}
+	for idx, playerID := range item.SubstituteIDs {
+		position := "SUB"
+		if idx < len(benchSlots) {
+			position = benchSlots[idx]
+		}
+		bench = append(bench, UserPlayerPoints{
+			PlayerID:      playerID,
+			Position:      position,
+			IsStarter:     false,
+			IsCaptain:     playerID == item.CaptainID,
+			IsViceCaptain: playerID == item.ViceCaptainID,
+		})
+	}
+
+	captainPoints := playerPoints[item.CaptainID]
+	vicePoints := playerPoints[item.ViceCaptainID]
+	viceGetsDouble := captainPoints <= 0 && vicePoints > 0
+
+	total := 0
+	out := make([]UserPlayerPoints, 0, len(starters)+len(bench))
+	for _, row := range starters {
+		basePoints := playerPoints[row.PlayerID]
+		multiplier := 1
+		countedPoints := basePoints
+		if row.IsCaptain && basePoints > 0 {
+			multiplier = 2
+			countedPoints = basePoints * 2
+		} else if row.IsViceCaptain && viceGetsDouble {
+			multiplier = 2
+			countedPoints = basePoints * 2
+		}
+		row.BasePoints = basePoints
+		row.Multiplier = multiplier
+		row.CountedPoints = countedPoints
+		total += countedPoints
+		out = append(out, row)
+	}
+
+	for _, row := range bench {
+		row.BasePoints = playerPoints[row.PlayerID]
+		row.Multiplier = 1
+		row.CountedPoints = 0
+		out = append(out, row)
+	}
+
+	return out, total
 }
 
 func minKickoff(items []fixture.Fixture) (time.Time, bool) {

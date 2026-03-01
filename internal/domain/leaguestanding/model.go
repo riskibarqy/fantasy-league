@@ -7,6 +7,7 @@ type Standing struct {
 	LeagueID        string
 	TeamID          string
 	IsLive          bool
+	Gameweek        int
 	Position        int
 	Played          int
 	Won             int

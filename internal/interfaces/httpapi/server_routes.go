@@ -56,6 +56,8 @@ func registerAuthorizedFantasyRoutes(mux *http.ServeMux, handler *Handler, verif
 	mux.Handle("GET /v1/fantasy/squads/me/players", RequireAuth(verifier, http.HandlerFunc(handler.ListMySquadPlayers)))
 	mux.Handle("POST /v1/fantasy/squads/me/players", RequireAuth(verifier, http.HandlerFunc(handler.AddPlayerToMySquad)))
 	mux.Handle("GET /v1/fantasy/squads/me", RequireAuth(verifier, http.HandlerFunc(handler.GetMySquad)))
+	mux.Handle("GET /v1/fantasy/points/summary", RequireAuth(verifier, http.HandlerFunc(handler.GetMySeasonPointsSummary)))
+	mux.Handle("GET /v1/fantasy/points/players", RequireAuth(verifier, http.HandlerFunc(handler.ListMyPlayerPointsByGameweek)))
 }
 
 func registerAuthorizedOnboardingRoutes(mux *http.ServeMux, handler *Handler, verifier TokenVerifier) {

@@ -269,30 +269,11 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 		return err
 	}
 
-	bundle, err := s.provider.FetchFixtureBundleBySeason(ctx, seasonID)
-	if err != nil {
-		return fmt.Errorf("fetch fixture bundle from sport data provider season_id=%d league=%s: %w", seasonID, lg.ID, err)
-	}
-	playerMappings, err := s.loadPlayerMappings(ctx, lg.ID)
-	if err != nil {
+	if err := s.syncFixtureBundle(ctx, lg.ID, seasonID, teamMappings, fixtureBundleSyncOptions{
+		onlyLiveWindow:   true,
+		upsertRawPayload: false,
+	}); err != nil {
 		return err
-	}
-
-	mappedFixtures := mapExternalFixturesToDomain(lg.ID, bundle.Fixtures, teamMappings)
-	if len(mappedFixtures) > 0 {
-		if err := s.ingestion.UpsertFixtures(ctx, mappedFixtures); err != nil {
-			return fmt.Errorf("upsert fixtures from sport data provider league=%s: %w", lg.ID, err)
-		}
-	}
-	if err := s.syncFixtureDerivedData(ctx, lg.ID, bundle, teamMappings, playerMappings); err != nil {
-		return err
-	}
-
-	if len(bundle.RawPayloads) > 0 {
-		payloads := applyLeagueToPayloads(lg.ID, bundle.RawPayloads)
-		if err := s.ingestion.UpsertRawPayloads(ctx, "sportmonks", payloads); err != nil {
-			return fmt.Errorf("upsert fixture raw payloads league=%s: %w", lg.ID, err)
-		}
 	}
 
 	standings, standingsPayloads, err := s.provider.FetchStandingsBySeason(ctx, seasonID)
@@ -300,6 +281,7 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 		return fmt.Errorf("fetch standings from sport data provider season_id=%d league=%s: %w", seasonID, lg.ID, err)
 	}
 	mappedStandings := mapExternalStandingsToDomain(lg.ID, standings, teamMappings)
+	standingsGameweek := resolveStandingsSnapshotGameweek(standings)
 	if len(standings) > 0 && len(mappedStandings) == 0 {
 		s.logger.WarnContext(ctx,
 			"season standings fetched but no rows mapped to internal teams",
@@ -307,14 +289,20 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 			"provider_count", len(standings),
 		)
 	}
-	if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, false, mappedStandings); err != nil {
-		return fmt.Errorf("replace season standings league=%s: %w", lg.ID, err)
+	if len(mappedStandings) > 0 {
+		if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, false, standingsGameweek, mappedStandings); err != nil {
+			return fmt.Errorf("replace season standings league=%s gameweek=%d: %w", lg.ID, standingsGameweek, err)
+		}
 	}
 	if len(standingsPayloads) > 0 {
 		payloads := applyLeagueToPayloads(lg.ID, standingsPayloads)
 		if err := s.ingestion.UpsertRawPayloads(ctx, "sportmonks", payloads); err != nil {
 			return fmt.Errorf("upsert season standings raw payloads league=%s: %w", lg.ID, err)
 		}
+	}
+
+	if err := s.SyncTopScorers(ctx, lg); err != nil {
+		return fmt.Errorf("sync top scorers league=%s: %w", lg.ID, err)
 	}
 
 	return nil
@@ -339,7 +327,7 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 		)
 		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
 	}
-	go s.SyncTopScorers(ctx, lg)
+
 	teamMappings, err := s.loadTeamMappings(ctx, lg.ID)
 	if err != nil {
 		return err
@@ -358,6 +346,7 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 		return fmt.Errorf("fetch live standings from sport data provider league_ref_id=%d league=%s: %w", leagueRefID, lg.ID, err)
 	}
 	mappedLiveStandings := mapExternalStandingsToDomain(lg.ID, liveStandings, teamMappings)
+	liveStandingsGameweek := resolveStandingsSnapshotGameweek(liveStandings)
 	if len(liveStandings) > 0 && len(mappedLiveStandings) == 0 {
 		s.logger.WarnContext(ctx,
 			"live standings fetched but no rows mapped to internal teams",
@@ -366,8 +355,10 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 			"provider_count", len(liveStandings),
 		)
 	}
-	if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, true, mappedLiveStandings); err != nil {
-		return fmt.Errorf("replace live standings league=%s: %w", lg.ID, err)
+	if len(mappedLiveStandings) > 0 {
+		if err := s.ingestion.ReplaceLeagueStandings(ctx, lg.ID, true, liveStandingsGameweek, mappedLiveStandings); err != nil {
+			return fmt.Errorf("replace live standings league=%s gameweek=%d: %w", lg.ID, liveStandingsGameweek, err)
+		}
 	}
 	if len(livePayloads) > 0 {
 		payloads := applyLeagueToPayloads(lg.ID, livePayloads)
@@ -381,29 +372,55 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 		return nil
 	}
 
+	return s.syncFixtureBundle(ctx, lg.ID, seasonID, teamMappings, fixtureBundleSyncOptions{
+		onlyLiveWindow:   true,
+		upsertRawPayload: false,
+	})
+}
+
+type fixtureBundleSyncOptions struct {
+	onlyLiveWindow   bool
+	upsertRawPayload bool
+}
+
+func (s *SportDataSyncService) syncFixtureBundle(
+	ctx context.Context,
+	leagueID string,
+	seasonID int64,
+	teamMappings teamMappings,
+	opts fixtureBundleSyncOptions,
+) error {
 	bundle, err := s.provider.FetchFixtureBundleBySeason(ctx, seasonID)
 	if err != nil {
-		return fmt.Errorf("fetch fixture bundle from sport data provider season_id=%d league=%s: %w", seasonID, lg.ID, err)
+		return fmt.Errorf("fetch fixture bundle from sport data provider season_id=%d league=%s: %w", seasonID, leagueID, err)
 	}
 
-	playerMappings, err := s.loadPlayerMappings(ctx, lg.ID)
+	if opts.onlyLiveWindow {
+		gameweekFilter := selectLiveWindowGameweeks(bundle.Fixtures, time.Now().UTC())
+		if len(gameweekFilter) > 0 {
+			bundle = filterFixtureBundleByGameweeks(bundle, gameweekFilter)
+		}
+	}
+
+	playerMappings, err := s.loadPlayerMappings(ctx, leagueID)
 	if err != nil {
 		return err
 	}
 
-	mappedFixtures := mapExternalFixturesToDomain(lg.ID, bundle.Fixtures, teamMappings)
+	mappedFixtures := mapExternalFixturesToDomain(leagueID, bundle.Fixtures, teamMappings)
 	if len(mappedFixtures) > 0 {
 		if err := s.ingestion.UpsertFixtures(ctx, mappedFixtures); err != nil {
-			return fmt.Errorf("upsert live fixtures league=%s: %w", lg.ID, err)
+			return fmt.Errorf("upsert fixtures from sport data provider league=%s: %w", leagueID, err)
 		}
 	}
-	if err := s.syncFixtureDerivedData(ctx, lg.ID, bundle, teamMappings, playerMappings); err != nil {
+	if err := s.syncFixtureDerivedData(ctx, leagueID, bundle, teamMappings, playerMappings); err != nil {
 		return err
 	}
-	if len(bundle.RawPayloads) > 0 {
-		payloads := applyLeagueToPayloads(lg.ID, bundle.RawPayloads)
+
+	if opts.upsertRawPayload && len(bundle.RawPayloads) > 0 {
+		payloads := applyLeagueToPayloads(leagueID, bundle.RawPayloads)
 		if err := s.ingestion.UpsertRawPayloads(ctx, "sportmonks", payloads); err != nil {
-			return fmt.Errorf("upsert live fixture raw payloads league=%s: %w", lg.ID, err)
+			return fmt.Errorf("upsert fixture raw payloads league=%s: %w", leagueID, err)
 		}
 	}
 
@@ -411,47 +428,68 @@ func (s *SportDataSyncService) SyncLive(ctx context.Context, lg league.League) e
 }
 
 func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.League) error {
-	s.logger.Info("Sync top scorers running !")
-	if lg.Season == "" || lg.ID == "" {
-		s.logger.WarnContext(ctx,
-			"skip top scorer sync: sport data provider is not fully configured",
-			"season", lg.Season,
-			"league_id", lg.ID,
-		)
-		return fmt.Errorf("%w: sport data provider is not fully configured", ErrDependencyUnavailable)
+	ctx, span := startUsecaseSpan(ctx, "usecase.SportDataSyncService.SyncTopScorers")
+	defer span.End()
+
+	leagueID := strings.TrimSpace(lg.ID)
+	if leagueID == "" {
+		return fmt.Errorf("%w: league id is required", ErrInvalidInput)
 	}
-	seasonID, ok := s.cfg.SeasonIDByLeague[strings.TrimSpace(lg.ID)]
+	if !s.cfg.Enabled {
+		return nil
+	}
+	if s.provider == nil || s.topScore == nil {
+		return fmt.Errorf("%w: top scorers sync dependencies are not configured", ErrDependencyUnavailable)
+	}
+
+	seasonID, ok := s.cfg.SeasonIDByLeague[leagueID]
 	if !ok || seasonID <= 0 {
 		return nil
 	}
-	process := func(ctx context.Context, seasonID, typeID int) {
+
+	typeIDs := make([]int, 0, len(TopScoreTypeMap))
+	for _, typeID := range TopScoreTypeMap {
+		typeIDs = append(typeIDs, typeID)
+	}
+	sort.Ints(typeIDs)
+
+	for _, typeID := range typeIDs {
 		page := 1
-		dataTopScorers, hasMore, err := s.provider.FetchTopScorersBySeasonID(ctx, seasonID, page, typeID)
-		if err != nil {
-			s.logger.WarnContext(ctx, err.Error())
-			return
-		}
-		for hasMore {
-			page++
-			dataTopScorersAdjustment, hm, err := s.provider.FetchTopScorersBySeasonID(ctx, seasonID, page, typeID)
+		allRows := make([]ExternalTopScorers, 0)
+
+		for {
+			dataTopScorers, hasMore, err := s.provider.FetchTopScorersBySeasonID(ctx, int(seasonID), page, typeID)
 			if err != nil {
-				s.logger.WarnContext(ctx, err.Error())
-				return
+				return fmt.Errorf(
+					"fetch top scorers season_id=%d type_id=%d page=%d league=%s: %w",
+					seasonID,
+					typeID,
+					page,
+					leagueID,
+					err,
+				)
 			}
-			dataTopScorers = append(dataTopScorers, dataTopScorersAdjustment...)
-			hasMore = hm
+			allRows = append(allRows, dataTopScorers...)
+			if !hasMore {
+				break
+			}
+			page++
 		}
-
-		err = s.topScore.UpsertTopScorers(ctx, mappingToModel(dataTopScorers))
-		if err != nil {
-			s.logger.WarnContext(ctx, err.Error())
-			return
+		mapped := mappingToModel(allRows)
+		if len(mapped) == 0 {
+			continue
+		}
+		if err := s.topScore.UpsertTopScorers(ctx, mapped); err != nil {
+			return fmt.Errorf(
+				"upsert top scorers season_id=%d type_id=%d league=%s: %w",
+				seasonID,
+				typeID,
+				leagueID,
+				err,
+			)
 		}
 	}
 
-	for _, v := range TopScoreTypeMap {
-		go process(ctx, int(seasonID), v)
-	}
 	return nil
 }
 
@@ -560,19 +598,27 @@ func (s *SportDataSyncService) syncFixtureDerivedData(
 		s.logger.WarnContext(ctx, "some fixture events could not be mapped", "league_id", leagueID, "provider_count", len(bundle.Events), "mapped_count", mappedEventsCount)
 	}
 
-	fixtureIDs := fixtureIDsFromExternalFixtures(leagueID, bundle.Fixtures)
+	fixtureIDs := fixtureIDsForDerivedData(teamStatsByFixture, playerStatsByFixture, eventsByFixture)
 	for _, fixtureID := range fixtureIDs {
-		stats := teamStatsByFixture[fixtureID]
-		if err := s.ingestion.UpsertTeamFixtureStats(ctx, fixtureID, stats); err != nil {
-			return fmt.Errorf("upsert team fixture stats fixture=%s league=%s: %w", fixtureID, leagueID, err)
+		stats, hasTeamStats := teamStatsByFixture[fixtureID]
+		if hasTeamStats {
+			if err := s.ingestion.UpsertTeamFixtureStats(ctx, fixtureID, stats); err != nil {
+				return fmt.Errorf("upsert team fixture stats fixture=%s league=%s: %w", fixtureID, leagueID, err)
+			}
 		}
-		statsPlayers := playerStatsByFixture[fixtureID]
-		if err := s.ingestion.UpsertPlayerFixtureStats(ctx, fixtureID, statsPlayers); err != nil {
-			return fmt.Errorf("upsert player fixture stats fixture=%s league=%s: %w", fixtureID, leagueID, err)
+
+		statsPlayers, hasPlayerStats := playerStatsByFixture[fixtureID]
+		if hasPlayerStats {
+			if err := s.ingestion.UpsertPlayerFixtureStats(ctx, fixtureID, statsPlayers); err != nil {
+				return fmt.Errorf("upsert player fixture stats fixture=%s league=%s: %w", fixtureID, leagueID, err)
+			}
 		}
-		events := eventsByFixture[fixtureID]
-		if err := s.ingestion.ReplaceFixtureEvents(ctx, fixtureID, events); err != nil {
-			return fmt.Errorf("replace fixture events fixture=%s league=%s: %w", fixtureID, leagueID, err)
+
+		events, hasEvents := eventsByFixture[fixtureID]
+		if hasEvents || hasTeamStats || hasPlayerStats {
+			if err := s.ingestion.ReplaceFixtureEvents(ctx, fixtureID, events); err != nil {
+				return fmt.Errorf("replace fixture events fixture=%s league=%s: %w", fixtureID, leagueID, err)
+			}
 		}
 	}
 
@@ -1291,6 +1337,19 @@ func maxInt(left, right int) int {
 	return right
 }
 
+func resolveStandingsSnapshotGameweek(items []ExternalStanding) int {
+	maxPlayed := 0
+	for _, item := range items {
+		if item.Played > maxPlayed {
+			maxPlayed = item.Played
+		}
+	}
+	if maxPlayed <= 0 {
+		return 1
+	}
+	return maxPlayed
+}
+
 func copyMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return map[string]any{}
@@ -1325,6 +1384,102 @@ func fixtureIDsFromExternalFixtures(leagueID string, fixtures []ExternalFixture)
 	}
 	sort.Strings(out)
 	return out
+}
+
+func fixtureIDsForDerivedData(
+	teamStatsByFixture map[string][]teamstats.FixtureStat,
+	playerStatsByFixture map[string][]playerstats.FixtureStat,
+	eventsByFixture map[string][]playerstats.FixtureEvent,
+) []string {
+	if len(teamStatsByFixture) == 0 && len(playerStatsByFixture) == 0 && len(eventsByFixture) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(teamStatsByFixture)+len(playerStatsByFixture)+len(eventsByFixture))
+	out := make([]string, 0, len(seen))
+	for fixtureID := range teamStatsByFixture {
+		if strings.TrimSpace(fixtureID) == "" {
+			continue
+		}
+		if _, ok := seen[fixtureID]; ok {
+			continue
+		}
+		seen[fixtureID] = struct{}{}
+		out = append(out, fixtureID)
+	}
+	for fixtureID := range playerStatsByFixture {
+		if strings.TrimSpace(fixtureID) == "" {
+			continue
+		}
+		if _, ok := seen[fixtureID]; ok {
+			continue
+		}
+		seen[fixtureID] = struct{}{}
+		out = append(out, fixtureID)
+	}
+	for fixtureID := range eventsByFixture {
+		if strings.TrimSpace(fixtureID) == "" {
+			continue
+		}
+		if _, ok := seen[fixtureID]; ok {
+			continue
+		}
+		seen[fixtureID] = struct{}{}
+		out = append(out, fixtureID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func selectLiveWindowGameweeks(fixtures []ExternalFixture, now time.Time) map[int]struct{} {
+	if len(fixtures) == 0 {
+		return nil
+	}
+
+	type fixtureCandidate struct {
+		gameweek int
+		kickoff  time.Time
+	}
+
+	candidates := make([]fixtureCandidate, 0, len(fixtures))
+	for _, item := range fixtures {
+		if item.Gameweek <= 0 || item.KickoffAt.IsZero() {
+			continue
+		}
+		candidates = append(candidates, fixtureCandidate{
+			gameweek: item.Gameweek,
+			kickoff:  item.KickoffAt.UTC(),
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	closest := candidates[0]
+	closestDiff := durationAbs(now.Sub(closest.kickoff))
+	for _, item := range candidates[1:] {
+		diff := durationAbs(now.Sub(item.kickoff))
+		if diff < closestDiff || (diff == closestDiff && item.kickoff.Before(closest.kickoff)) {
+			closest = item
+			closestDiff = diff
+		}
+	}
+
+	window := map[int]struct{}{
+		closest.gameweek:     {},
+		closest.gameweek + 1: {},
+	}
+	if closest.gameweek > 1 {
+		window[closest.gameweek-1] = struct{}{}
+	}
+	return window
+}
+
+func durationAbs(value time.Duration) time.Duration {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func countTeamStatsMap(items map[string][]teamstats.FixtureStat) int {

@@ -45,6 +45,7 @@ type Handler struct {
 	ingestionService      *usecase.IngestionService
 	sportDataSyncService  *usecase.SportDataSyncService
 	customLeagueService   *usecase.CustomLeagueService
+	scoringService        *usecase.ScoringService
 	onboardingService     *usecase.OnboardingService
 	topScoreService       *usecase.TopScoreService
 	jobDispatchRepo       jobscheduler.Repository
@@ -70,6 +71,7 @@ func NewHandler(
 	ingestionService *usecase.IngestionService,
 	sportDataSyncService *usecase.SportDataSyncService,
 	customLeagueService *usecase.CustomLeagueService,
+	scoringService *usecase.ScoringService,
 	onboardingService *usecase.OnboardingService,
 	jobDispatchRepo jobscheduler.Repository,
 	topScoreService *usecase.TopScoreService,
@@ -93,6 +95,7 @@ func NewHandler(
 		ingestionService:      ingestionService,
 		sportDataSyncService:  sportDataSyncService,
 		customLeagueService:   customLeagueService,
+		scoringService:        scoringService,
 		onboardingService:     onboardingService,
 		jobDispatchRepo:       jobDispatchRepo,
 		topScoreService:       topScoreService,
@@ -245,6 +248,7 @@ type ingestRawPayloadsRequest struct {
 type ingestLeagueStandingsRequest struct {
 	LeagueID string                       `json:"league_id" validate:"required"`
 	IsLive   bool                         `json:"is_live"`
+	Gameweek int                          `json:"gameweek" validate:"omitempty,gt=0"`
 	Items    []ingestLeagueStandingRecord `json:"items" validate:"required,min=1,dive"`
 }
 
@@ -316,6 +320,42 @@ type dashboardDTO struct {
 	TotalPoints      int     `json:"totalPoints"`
 	Rank             int     `json:"rank"`
 	SelectedLeagueID string  `json:"selectedLeagueId"`
+}
+
+type userSeasonPointsSummaryDTO struct {
+	LeagueID      string  `json:"league_id"`
+	UserID        string  `json:"user_id"`
+	TotalPoints   int     `json:"total_points"`
+	AveragePoints float64 `json:"average_points"`
+	HighestPoints int     `json:"highest_points"`
+	Gameweeks     int     `json:"gameweeks"`
+}
+
+type userPlayerPointsDTO struct {
+	PlayerID      string `json:"player_id"`
+	PlayerName    string `json:"player_name,omitempty"`
+	Position      string `json:"position"`
+	IsStarter     bool   `json:"is_starter"`
+	IsCaptain     bool   `json:"is_captain"`
+	IsViceCaptain bool   `json:"is_vice_captain"`
+	Multiplier    int    `json:"multiplier"`
+	BasePoints    int    `json:"base_points"`
+	CountedPoints int    `json:"counted_points"`
+}
+
+type userGameweekPlayerPointsDTO struct {
+	LeagueID    string                `json:"league_id"`
+	UserID      string                `json:"user_id"`
+	Gameweek    int                   `json:"gameweek"`
+	TotalPoints int                   `json:"total_points"`
+	Players     []userPlayerPointsDTO `json:"players"`
+}
+
+type userPlayerPointsResponseDTO struct {
+	LeagueID         string                        `json:"league_id"`
+	UserID           string                        `json:"user_id"`
+	FilteredGameweek *int                          `json:"filtered_gameweek,omitempty"`
+	Items            []userGameweekPlayerPointsDTO `json:"items"`
 }
 
 type leaguePublicDTO struct {
@@ -489,6 +529,7 @@ type fixtureDetailsDTO struct {
 
 type leagueStandingDTO struct {
 	LeagueID       string `json:"league_id"`
+	Gameweek       int    `json:"gameweek"`
 	TeamID         string `json:"team_id"`
 	TeamName       string `json:"team_name,omitempty"`
 	TeamLogoURL    string `json:"team_logo_url,omitempty"`
@@ -670,6 +711,52 @@ func teamSeasonStatsToDTO(ctx context.Context, stats teamstats.SeasonStats) team
 	}
 }
 
+func userSeasonPointsSummaryToDTO(ctx context.Context, item usecase.UserSeasonPointsSummary) userSeasonPointsSummaryDTO {
+	ctx, span := startSpan(ctx, "httpapi.userSeasonPointsSummaryToDTO")
+	defer span.End()
+
+	return userSeasonPointsSummaryDTO{
+		LeagueID:      item.LeagueID,
+		UserID:        item.UserID,
+		TotalPoints:   item.TotalPoints,
+		AveragePoints: round2(ctx, item.AveragePoints),
+		HighestPoints: item.HighestPoints,
+		Gameweeks:     item.Gameweeks,
+	}
+}
+
+func userGameweekPlayerPointsToDTO(
+	ctx context.Context,
+	item usecase.UserGameweekPlayerPoints,
+	playerNameByID map[string]string,
+) userGameweekPlayerPointsDTO {
+	ctx, span := startSpan(ctx, "httpapi.userGameweekPlayerPointsToDTO")
+	defer span.End()
+
+	players := make([]userPlayerPointsDTO, 0, len(item.Players))
+	for _, row := range item.Players {
+		players = append(players, userPlayerPointsDTO{
+			PlayerID:      row.PlayerID,
+			PlayerName:    strings.TrimSpace(playerNameByID[row.PlayerID]),
+			Position:      row.Position,
+			IsStarter:     row.IsStarter,
+			IsCaptain:     row.IsCaptain,
+			IsViceCaptain: row.IsViceCaptain,
+			Multiplier:    row.Multiplier,
+			BasePoints:    row.BasePoints,
+			CountedPoints: row.CountedPoints,
+		})
+	}
+
+	return userGameweekPlayerPointsDTO{
+		LeagueID:    item.LeagueID,
+		UserID:      item.UserID,
+		Gameweek:    item.Gameweek,
+		TotalPoints: item.TotalPoints,
+		Players:     players,
+	}
+}
+
 func leagueStandingToDTO(
 	ctx context.Context,
 	item leaguestanding.Standing,
@@ -681,6 +768,7 @@ func leagueStandingToDTO(
 
 	return leagueStandingDTO{
 		LeagueID:       item.LeagueID,
+		Gameweek:       item.Gameweek,
 		TeamID:         item.TeamID,
 		TeamName:       strings.TrimSpace(teamName),
 		TeamLogoURL:    strings.TrimSpace(teamLogoURL),
@@ -867,6 +955,13 @@ func round1(ctx context.Context, v float64) float64 {
 	defer span.End()
 
 	return float64(int(v*10+0.5)) / 10.0
+}
+
+func round2(ctx context.Context, v float64) float64 {
+	ctx, span := startSpan(ctx, "httpapi.round2")
+	defer span.End()
+
+	return float64(int(v*100+0.5)) / 100.0
 }
 
 func leagueLogoURL(ctx context.Context, name, countryCode string) string {

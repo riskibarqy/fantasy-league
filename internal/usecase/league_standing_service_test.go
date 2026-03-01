@@ -409,7 +409,7 @@ func (s *stubLeagueStandingRepository) ListByLeague(_ context.Context, leagueID 
 	return out, nil
 }
 
-func (s *stubLeagueStandingRepository) ReplaceByLeague(_ context.Context, leagueID string, live bool, rows []leaguestanding.Standing) error {
+func (s *stubLeagueStandingRepository) ReplaceByLeague(_ context.Context, leagueID string, live bool, _ int, rows []leaguestanding.Standing) error {
 	out := make([]leaguestanding.Standing, len(rows))
 	copy(out, rows)
 	s.rows[standingsKey(leagueID, live)] = out

@@ -10,6 +10,7 @@ type leagueStandingTableModel struct {
 	LeagueID        string       `db:"league_public_id"`
 	TeamID          string       `db:"team_public_id"`
 	IsLive          bool         `db:"is_live"`
+	Gameweek        int          `db:"gameweek"`
 	Position        int          `db:"position"`
 	Played          int          `db:"played"`
 	Won             int          `db:"won"`
@@ -30,6 +31,7 @@ type leagueStandingInsertModel struct {
 	LeagueID        string     `db:"league_public_id"`
 	TeamID          string     `db:"team_public_id"`
 	IsLive          bool       `db:"is_live"`
+	Gameweek        int        `db:"gameweek"`
 	Position        int        `db:"position"`
 	Played          int        `db:"played"`
 	Won             int        `db:"won"`

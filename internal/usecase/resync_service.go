@@ -407,9 +407,12 @@ func syncResyncStanding(ctx context.Context, state *resyncLeagueState) (int, err
 	}
 
 	mapped := mapExternalStandingsToDomain(state.leagueID, standings, teamMappings)
+	gameweek := resolveStandingsSnapshotGameweek(standings)
 	if !state.dryRun {
-		if err := state.syncer.ingestion.ReplaceLeagueStandings(ctx, state.leagueID, false, mapped); err != nil {
-			return 0, fmt.Errorf("replace season standings league=%s: %w", state.leagueID, err)
+		if len(mapped) > 0 {
+			if err := state.syncer.ingestion.ReplaceLeagueStandings(ctx, state.leagueID, false, gameweek, mapped); err != nil {
+				return 0, fmt.Errorf("replace season standings league=%s gameweek=%d: %w", state.leagueID, gameweek, err)
+			}
 		}
 		if len(payloads) > 0 {
 			if err := state.syncer.ingestion.UpsertRawPayloads(ctx, "sportmonks", payloads); err != nil {

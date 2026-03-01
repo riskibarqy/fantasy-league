@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -19,10 +20,36 @@ func NewLeagueStandingRepository(db *sqlx.DB) *LeagueStandingRepository {
 }
 
 func (r *LeagueStandingRepository) ListByLeague(ctx context.Context, leagueID string, live bool) ([]leaguestanding.Standing, error) {
+	latestGameweekQuery, latestGameweekArgs, err := qb.Select("gameweek").From("league_standings").
+		Where(
+			qb.Eq("league_public_id", leagueID),
+			qb.Eq("is_live", live),
+			qb.IsNull("deleted_at"),
+		).
+		OrderBy("gameweek DESC", "id DESC").
+		Limit(1).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build latest league standings gameweek query: %w", err)
+	}
+
+	type gameweekRow struct {
+		Gameweek int `db:"gameweek"`
+	}
+
+	var latest gameweekRow
+	if err := r.db.GetContext(ctx, &latest, latestGameweekQuery, latestGameweekArgs...); err != nil {
+		if err == sql.ErrNoRows {
+			return []leaguestanding.Standing{}, nil
+		}
+		return nil, fmt.Errorf("get latest league standings gameweek: %w", err)
+	}
+
 	query, args, err := qb.Select("*").From("league_standings").
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.Eq("is_live", live),
+			qb.Eq("gameweek", latest.Gameweek),
 			qb.IsNull("deleted_at"),
 		).
 		OrderBy("position", "points DESC", "goal_difference DESC", "id").
@@ -42,6 +69,7 @@ func (r *LeagueStandingRepository) ListByLeague(ctx context.Context, leagueID st
 			LeagueID:        row.LeagueID,
 			TeamID:          row.TeamID,
 			IsLive:          row.IsLive,
+			Gameweek:        row.Gameweek,
 			Position:        row.Position,
 			Played:          row.Played,
 			Won:             row.Won,
@@ -59,7 +87,11 @@ func (r *LeagueStandingRepository) ListByLeague(ctx context.Context, leagueID st
 	return out, nil
 }
 
-func (r *LeagueStandingRepository) ReplaceByLeague(ctx context.Context, leagueID string, live bool, standings []leaguestanding.Standing) error {
+func (r *LeagueStandingRepository) ReplaceByLeague(ctx context.Context, leagueID string, live bool, gameweek int, standings []leaguestanding.Standing) error {
+	if gameweek <= 0 {
+		return fmt.Errorf("replace league standings: gameweek must be greater than zero")
+	}
+
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx replace league standings: %w", err)
@@ -81,6 +113,7 @@ func (r *LeagueStandingRepository) ReplaceByLeague(ctx context.Context, leagueID
 			LeagueID:        leagueID,
 			TeamID:          teamID,
 			IsLive:          live,
+			Gameweek:        gameweek,
 			Position:        item.Position,
 			Played:          item.Played,
 			Won:             item.Won,
@@ -93,7 +126,7 @@ func (r *LeagueStandingRepository) ReplaceByLeague(ctx context.Context, leagueID
 			Form:            strings.TrimSpace(item.Form),
 			SourceUpdatedAt: item.SourceUpdatedAt,
 		}
-		query, args, err := qb.InsertModel("league_standings", insertModel, `ON CONFLICT (league_public_id, team_public_id, is_live) WHERE deleted_at IS NULL
+		query, args, err := qb.InsertModel("league_standings", insertModel, `ON CONFLICT (league_public_id, team_public_id, is_live, gameweek) WHERE deleted_at IS NULL
 DO UPDATE SET
     position = EXCLUDED.position,
     played = EXCLUDED.played,
@@ -115,7 +148,7 @@ DO UPDATE SET
 		}
 	}
 
-	activeTeamIDs, err := listActiveLeagueStandingTeamIDs(ctx, tx, leagueID, live)
+	activeTeamIDs, err := listActiveLeagueStandingTeamIDs(ctx, tx, leagueID, live, gameweek)
 	if err != nil {
 		return err
 	}
@@ -130,6 +163,7 @@ DO UPDATE SET
 				qb.Eq("league_public_id", leagueID),
 				qb.Eq("team_public_id", teamID),
 				qb.Eq("is_live", live),
+				qb.Eq("gameweek", gameweek),
 				qb.IsNull("deleted_at"),
 			).
 			ToSQL()
@@ -145,6 +179,7 @@ DO UPDATE SET
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.Eq("is_live", live),
+			qb.Eq("gameweek", gameweek),
 			qb.Expr("deleted_at IS NOT NULL"),
 		).
 		ToSQL()
@@ -161,11 +196,12 @@ DO UPDATE SET
 	return nil
 }
 
-func listActiveLeagueStandingTeamIDs(ctx context.Context, tx *sqlx.Tx, leagueID string, live bool) ([]string, error) {
+func listActiveLeagueStandingTeamIDs(ctx context.Context, tx *sqlx.Tx, leagueID string, live bool, gameweek int) ([]string, error) {
 	query, args, err := qb.Select("team_public_id").From("league_standings").
 		Where(
 			qb.Eq("league_public_id", leagueID),
 			qb.Eq("is_live", live),
+			qb.Eq("gameweek", gameweek),
 			qb.IsNull("deleted_at"),
 		).
 		ToSQL()
