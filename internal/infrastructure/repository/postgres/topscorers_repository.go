@@ -94,7 +94,7 @@ func (r *TopScorersRepository) UpsertTopScorers(ctx context.Context, items []top
 	defer func() { _ = tx.Rollback() }()
 
 	for _, item := range items {
-		insertModel := topScorersTableModel{
+		insertModel := topScorersInsertTableModel{
 			TypeID:           item.TypeID,
 			TypeName:         item.TypeName,
 			Rank:             item.Rank,
@@ -113,12 +113,11 @@ func (r *TopScorersRepository) UpsertTopScorers(ctx context.Context, items []top
 		}
 
 		query, args, err := qb.InsertModel("top_scorers", insertModel, `
-ON CONFLICT (season_id, player_id, type_id)
+ON CONFLICT (season, player_id, type_id)
 DO UPDATE SET
 	type_name          = EXCLUDED.type_name,
 	rank               = EXCLUDED.rank,
 	total              = EXCLUDED.total,
-	season_name         = EXCLUDED.season_name,
 	player_name        = EXCLUDED.player_name,
 	image_player       = EXCLUDED.image_player,
 	nationality        = EXCLUDED.nationality,
