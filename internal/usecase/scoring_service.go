@@ -33,12 +33,14 @@ type ScoringService struct {
 const defaultScoringEnsureInterval = 30 * time.Second
 
 type UserSeasonPointsSummary struct {
-	LeagueID      string
-	UserID        string
-	TotalPoints   int
-	AveragePoints float64
-	HighestPoints int
-	Gameweeks     int
+	LeagueID              string
+	UserID                string
+	TotalPoints           int
+	AveragePoints         float64
+	HighestPoints         int
+	Gameweeks             int
+	CurrentGameweek       int
+	CurrentGameweekPoints int
 }
 
 type UserPlayerPoints struct {
@@ -254,16 +256,28 @@ func (s *ScoringService) GetUserSeasonPointsSummary(ctx context.Context, leagueI
 		return UserSeasonPointsSummary{}, fmt.Errorf("list user gameweek points for season summary: %w", err)
 	}
 
-	totalPoints := 0
-	highestPoints := 0
-	gameweeks := 0
+	maxUserGameweek := 0
+	pointsByGameweek := make(map[int]int)
 	for _, row := range rows {
 		if row.UserID != userID {
 			continue
 		}
-		totalPoints += row.Points
-		if gameweeks == 0 || row.Points > highestPoints {
-			highestPoints = row.Points
+		if row.Gameweek <= 0 {
+			continue
+		}
+		pointsByGameweek[row.Gameweek] = row.Points
+		if row.Gameweek > maxUserGameweek {
+			maxUserGameweek = row.Gameweek
+		}
+	}
+
+	totalPoints := 0
+	highestPoints := 0
+	gameweeks := 0
+	for _, points := range pointsByGameweek {
+		totalPoints += points
+		if gameweeks == 0 || points > highestPoints {
+			highestPoints = points
 		}
 		gameweeks++
 	}
@@ -273,13 +287,26 @@ func (s *ScoringService) GetUserSeasonPointsSummary(ctx context.Context, leagueI
 		averagePoints = float64(totalPoints) / float64(gameweeks)
 	}
 
+	currentGameweek := maxUserGameweek
+	if s.fixtureRepo != nil {
+		fixtures, err := s.fixtureRepo.ListByLeague(ctx, leagueID)
+		if err == nil {
+			currentGameweek = resolveDashboardGameweek(fixtures, s.now().UTC())
+		}
+	}
+	if currentGameweek <= 0 {
+		currentGameweek = 1
+	}
+
 	return UserSeasonPointsSummary{
-		LeagueID:      leagueID,
-		UserID:        userID,
-		TotalPoints:   totalPoints,
-		AveragePoints: averagePoints,
-		HighestPoints: highestPoints,
-		Gameweeks:     gameweeks,
+		LeagueID:              leagueID,
+		UserID:                userID,
+		TotalPoints:           totalPoints,
+		AveragePoints:         averagePoints,
+		HighestPoints:         highestPoints,
+		Gameweeks:             currentGameweek,
+		CurrentGameweek:       currentGameweek,
+		CurrentGameweekPoints: pointsByGameweek[currentGameweek],
 	}, nil
 }
 

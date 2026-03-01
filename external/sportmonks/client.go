@@ -1806,9 +1806,18 @@ func parseProviderDateTime(raw string) *time.Time {
 	}
 
 	layouts := []string{
+		"2006-01-02",
+		"2006-01-02 15:04",
 		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05-0700",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05.000",
+		"2006-01-02T15:04:05.000000",
+		"2006-01-02T15:04:05.000000000",
 		"2006-01-02T15:04:05Z07:00",
 		time.RFC3339,
+		time.RFC3339Nano,
 	}
 	for _, layout := range layouts {
 		parsed, err := time.Parse(layout, value)

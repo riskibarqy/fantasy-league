@@ -231,19 +231,25 @@ func NewFixtureRepository(next fixture.Repository, cache *basecache.Store) *Fixt
 
 func (r *FixtureRepository) ListByLeague(ctx context.Context, leagueID string) ([]fixture.Fixture, error) {
 	key := "fixture:list:" + leagueID
-	v, err := r.cache.GetOrLoad(ctx, key, func(ctx context.Context) (any, error) {
-		items, err := r.next.ListByLeague(ctx, leagueID)
-		if err != nil {
-			return nil, err
+	if cached, ok := r.cache.Get(ctx, key); ok {
+		if items, ok := cached.([]fixture.Fixture); ok {
+			return append([]fixture.Fixture(nil), items...), nil
 		}
-		return append([]fixture.Fixture(nil), items...), nil
-	})
+	}
+
+	items, err := r.next.ListByLeague(ctx, leagueID)
 	if err != nil {
 		return nil, err
 	}
 
-	items, _ := v.([]fixture.Fixture)
-	return append([]fixture.Fixture(nil), items...), nil
+	copied := append([]fixture.Fixture(nil), items...)
+	// Avoid caching empty fixture lists. They are often transient during sync windows
+	// and can make responses appear intermittently empty across instances.
+	if len(copied) > 0 {
+		r.cache.Set(ctx, key, copied)
+	}
+
+	return copied, nil
 }
 
 func (r *FixtureRepository) GetByID(ctx context.Context, leagueID, fixtureID string) (fixture.Fixture, bool, error) {

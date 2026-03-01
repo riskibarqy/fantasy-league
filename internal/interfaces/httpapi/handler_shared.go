@@ -323,12 +323,14 @@ type dashboardDTO struct {
 }
 
 type userSeasonPointsSummaryDTO struct {
-	LeagueID      string  `json:"league_id"`
-	UserID        string  `json:"user_id"`
-	TotalPoints   int     `json:"total_points"`
-	AveragePoints float64 `json:"average_points"`
-	HighestPoints int     `json:"highest_points"`
-	Gameweeks     int     `json:"gameweeks"`
+	LeagueID              string  `json:"league_id"`
+	UserID                string  `json:"user_id"`
+	TotalPoints           int     `json:"total_points"`
+	AveragePoints         float64 `json:"average_points"`
+	HighestPoints         int     `json:"highest_points"`
+	Gameweeks             int     `json:"gameweeks"`
+	CurrentGameweek       int     `json:"current_gameweek"`
+	CurrentGameweekPoints int     `json:"current_gameweek_points"`
 }
 
 type userPlayerPointsDTO struct {
@@ -716,12 +718,14 @@ func userSeasonPointsSummaryToDTO(ctx context.Context, item usecase.UserSeasonPo
 	defer span.End()
 
 	return userSeasonPointsSummaryDTO{
-		LeagueID:      item.LeagueID,
-		UserID:        item.UserID,
-		TotalPoints:   item.TotalPoints,
-		AveragePoints: round2(ctx, item.AveragePoints),
-		HighestPoints: item.HighestPoints,
-		Gameweeks:     item.Gameweeks,
+		LeagueID:              item.LeagueID,
+		UserID:                item.UserID,
+		TotalPoints:           item.TotalPoints,
+		AveragePoints:         round2(ctx, item.AveragePoints),
+		HighestPoints:         item.HighestPoints,
+		Gameweeks:             item.Gameweeks,
+		CurrentGameweek:       item.CurrentGameweek,
+		CurrentGameweekPoints: item.CurrentGameweekPoints,
 	}
 }
 

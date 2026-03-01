@@ -400,9 +400,21 @@ func (s *SportDataSyncService) syncFixtureBundle(
 	}
 
 	if opts.onlyLiveWindow {
+		originalBundle := bundle
 		gameweekFilter := selectLiveWindowGameweeks(bundle.Fixtures, time.Now().UTC())
 		if len(gameweekFilter) > 0 {
-			bundle = filterFixtureBundleByGameweeks(bundle, gameweekFilter)
+			filtered := filterFixtureBundleByGameweeks(bundle, gameweekFilter)
+			if len(filtered.Fixtures) == 0 && len(originalBundle.Fixtures) > 0 {
+				s.logger.WarnContext(ctx,
+					"gameweek window filtering returned zero fixtures; fallback to unfiltered season fixtures",
+					"league_id", leagueID,
+					"season_id", seasonID,
+					"filter_size", len(gameweekFilter),
+					"original_fixtures", len(originalBundle.Fixtures),
+				)
+			} else {
+				bundle = filtered
+			}
 		}
 	}
 
