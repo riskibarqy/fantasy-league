@@ -4,6 +4,12 @@
 .idea
 .env
 .env.*
+.cache
+api
+migration
+sportmonks-player-response.json
+*.patch
+*.md
 bin
 tmp
 *.log
