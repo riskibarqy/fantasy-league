@@ -10,7 +10,7 @@ type topScorersTableModel struct {
 	TypeName         string     `db:"type_name"`
 	Rank             int        `db:"rank"`
 	Total            int        `db:"total"`
-	LeagueID         int64      `db:"league_id"`
+	LeagueID         string     `db:"league_id"`
 	PlayerID         int64      `db:"player_id"`
 	Season           string     `db:"season"`
 	ParticipantID    int64      `db:"participant_id"`
@@ -31,7 +31,7 @@ type topScorersInsertTableModel struct {
 	TypeName         string `db:"type_name"`
 	Rank             int    `db:"rank"`
 	Total            int    `db:"total"`
-	LeagueID         int64  `db:"league_id"`
+	LeagueID         string `db:"league_id"`
 	PlayerID         int64  `db:"player_id"`
 	Season           string `db:"season"`
 	ParticipantID    int64  `db:"participant_id"`
