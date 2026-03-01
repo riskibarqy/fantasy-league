@@ -498,7 +498,7 @@ func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.Lea
 			page++
 		}
 
-		mapped := mappingToModel(allRows)
+		mapped := mappingToModel(allRows, leagueID)
 		if len(mapped) == 0 {
 			if typeFailed {
 				failedTypeIDs = append(failedTypeIDs, typeID)
@@ -532,14 +532,14 @@ func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.Lea
 	return nil
 }
 
-func mappingToModel(a []ExternalTopScorers) (scorers []topscorers.TopScorers) {
+func mappingToModel(a []ExternalTopScorers, leagueID string) (scorers []topscorers.TopScorers) {
 	for _, item := range a {
 		scorers = append(scorers, topscorers.TopScorers{
 			TypeID:           item.TypeID,
 			TypeName:         item.TypeName,
 			Rank:             item.Rank,
 			Total:            item.Total,
-			LeagueID:         item.LeagueID,
+			LeagueID:         leagueID,
 			PlayerID:         item.PlayerID,
 			Season:           item.Season,
 			ParticipantID:    item.ParticipantID,

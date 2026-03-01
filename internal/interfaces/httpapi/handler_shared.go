@@ -426,7 +426,7 @@ type TopScorePublicDTO struct {
 	TypeName         string `json:"typeName"`
 	Rank             int    `json:"rank"`
 	Total            int    `json:"total"`
-	LeagueID         int64  `json:"leagueID"`
+	LeagueID         string `json:"leagueID"`
 	PlayerID         int64  `json:"playerID"`
 	Season           string `json:"season"`
 	ParticipantID    int64  `json:"participantID"`

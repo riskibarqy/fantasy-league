@@ -5,7 +5,7 @@ type TopScorers struct {
 	TypeName         string
 	Rank             int
 	Total            int
-	LeagueID         int64
+	LeagueID         string
 	PlayerID         int64
 	Season           string
 	ParticipantID    int64
