@@ -89,6 +89,9 @@ func (stubResyncProvider) FetchStandingsBySeason(_ context.Context, _ int64) ([]
 func (stubResyncProvider) FetchLiveStandingsByLeague(_ context.Context, _ int64) ([]ExternalStanding, []rawdata.Payload, error) {
 	return nil, nil, nil
 }
+func (stubResyncProvider) FetchTopScorersBySeasonID(_ context.Context, _ int, _ int, _ int) ([]ExternalTopScorers, bool, error) {
+	return nil, false, nil
+}
 
 func (stubResyncProvider) FetchStatisticTypes(_ context.Context) ([]ExternalStatType, []rawdata.Payload, error) {
 	return nil, nil, nil

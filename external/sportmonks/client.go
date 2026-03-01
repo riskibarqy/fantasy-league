@@ -28,6 +28,7 @@ const (
 	defaultIncludeFixture     = "participants;scores;venue;state;statistics.type;lineups.details.type;events.type;events.subtype"
 	defaultIncludeFixtureLite = "participants;scores;venue;state"
 	defaultIncludeStanding    = "participant;details.type;form"
+	defaultIncludeTopScorers  = "player.nationality;player.position;participant;type;season.league"
 	defaultIncludeSeasonStats = "type;details.type"
 	fixtureDetailChunkSize    = 20
 	fixtureDetailMaxIDs       = 80
@@ -518,6 +519,28 @@ func (c *Client) FetchLiveStandingsByLeague(ctx context.Context, leagueRefID int
 	}
 	items := parseStandingsPayload(raw, envelope.Data)
 	return items, payloads, nil
+}
+
+func (c *Client) FetchTopScorersBySeasonID(ctx context.Context, seasonID, page, typeId int) ([]usecase.ExternalTopScorers, bool, error) {
+	if seasonID <= 0 {
+		return nil, false, fmt.Errorf("season id must be greater than zero")
+	}
+
+	path := fmt.Sprintf("/topscorers/seasons/%d", seasonID)
+	query := map[string]string{
+		"include": defaultIncludeTopScorers,
+		"page":    strconv.Itoa(page),
+		"filters": fmt.Sprintf("seasontopscorerTypes:%d", typeId),
+	}
+
+	var envelope ResponseTopScorers
+	_, err := c.doJSON(ctx, path, query, &envelope)
+	if err != nil {
+		return nil, false, fmt.Errorf("fetch top scorers seasondId=%d: %w", seasonID, err)
+	}
+
+	items := parseTopScorersPayload(envelope.Data)
+	return items, envelope.Pagination.HasMore, nil
 }
 
 func (c *Client) FetchStatisticTypes(ctx context.Context) ([]usecase.ExternalStatType, []rawdata.Payload, error) {
@@ -1319,6 +1342,29 @@ func parseStandingsPayload(raw []byte, direct []map[string]any) []usecase.Extern
 	}
 
 	return parseStandings(rows)
+}
+
+func parseTopScorersPayload(data []TopscorerItem) (result []usecase.ExternalTopScorers) {
+
+	for _, v := range data {
+		result = append(result, usecase.ExternalTopScorers{
+			TypeID:           v.TypeID,
+			TypeName:         v.Type.Name,
+			Rank:             v.Position,
+			Total:            v.Total,
+			PlayerID:         v.PlayerID,
+			Season:           v.Season.Name,
+			ParticipantID:    v.ParticipantID,
+			PlayerName:       v.Player.CommonName,
+			ImagePlayer:      v.Player.ImagePath,
+			Nationality:      v.Player.Nationality.Name,
+			ImageNationality: v.Player.Nationality.ImagePath,
+			ParticipantName:  v.Participant.Name,
+			ImageParticipant: v.Participant.ImagePath,
+			PositionName:     v.Player.Position.Name,
+		})
+	}
+	return
 }
 
 func collectStandingRows(node any) []map[string]any {

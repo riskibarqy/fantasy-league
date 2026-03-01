@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/riskibarqy/fantasy-league/internal/domain/topscorers"
 	"github.com/riskibarqy/fantasy-league/internal/platform/logging"
 	"net/http"
 	"time"
@@ -58,6 +59,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 	}
 
 	var leagueRepo leaguedomain.Repository = postgresrepo.NewLeagueRepository(db)
+	var topScoreRepo topscorers.Repository = postgresrepo.NewTopScorersRepository(db)
 	var teamRepo teamdomain.Repository = postgresrepo.NewTeamRepository(db)
 	var playerRepo playerdomain.Repository = postgresrepo.NewPlayerRepository(db)
 	fixtureWriterBase := postgresrepo.NewFixtureRepository(db)
@@ -93,6 +95,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 	leagueSvc := usecase.NewLeagueService(leagueRepo, teamRepo)
 	teamSvc := usecase.NewTeamService(leagueRepo, teamRepo, teamStatsRepo)
 	playerSvc := usecase.NewPlayerService(leagueRepo, playerRepo)
+	topScoreSvc := usecase.NewTopScoreService(topScoreRepo)
 	playerStatsSvc := usecase.NewPlayerStatsService(playerStatsRepo)
 	fixtureSvc := usecase.NewFixtureService(leagueRepo, fixtureRepo)
 	leagueStandingSvc := usecase.NewLeagueStandingService(leagueRepo, leagueStandingRepo, fixtureRepo)
@@ -121,6 +124,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 		sportDataProvider,
 		teamRepo,
 		playerRepo,
+		topScoreRepo,
 		ingestionSvc,
 		usecase.SportDataSyncConfig{
 			Enabled:          cfg.SportMonksEnabled,
@@ -203,6 +207,7 @@ func NewHTTPHandler(cfg config.Config, logger *logging.Logger) (http.Handler, fu
 		customLeagueSvc,
 		onboardingSvc,
 		jobDispatchRepo,
+		topScoreSvc,
 		logger,
 	)
 	router := httpapi.NewRouter(

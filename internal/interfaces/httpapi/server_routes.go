@@ -20,6 +20,7 @@ func registerPublicDomainRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/teams/{teamID}/history", handler.GetTeamHistoryByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/teams/{teamID}/stats", handler.GetTeamStatsByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players", handler.ListPlayersByLeague)
+	mux.HandleFunc("GET /v1/leagues/{leagueID}/topscorers/season/{season}", handler.ListTopScorerByLeagueAndSeason)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players/{playerID}", handler.GetPlayerDetailsByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/players/{playerID}/history", handler.GetPlayerHistoryByLeague)
 	mux.HandleFunc("GET /v1/leagues/{leagueID}/fixtures", handler.ListFixturesByLeague)
