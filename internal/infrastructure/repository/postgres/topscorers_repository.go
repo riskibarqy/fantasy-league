@@ -113,7 +113,7 @@ func (r *TopScorersRepository) UpsertTopScorers(ctx context.Context, items []top
 		}
 
 		query, args, err := qb.InsertModel("top_scorers", insertModel, `
-ON CONFLICT (season, player_id, type_id)
+ON CONFLICT (season, league_id, player_id, type_id)
 DO UPDATE SET
 	type_name          = EXCLUDED.type_name,
 	rank               = EXCLUDED.rank,
