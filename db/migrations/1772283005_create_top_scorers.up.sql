@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS top_scorers (
     total INTEGER NOT NULL,
 
     player_id BIGINT NOT NULL,
-    league_id BIGINT NOT NULL,
+    league_id VARCHAR(50) NOT NULL,
     season VARCHAR(50) NOT NULL,
 
     participant_id BIGINT NOT NULL,
