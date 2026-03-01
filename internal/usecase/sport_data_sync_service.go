@@ -302,7 +302,11 @@ func (s *SportDataSyncService) SyncSchedule(ctx context.Context, lg league.Leagu
 	}
 
 	if err := s.SyncTopScorers(ctx, lg); err != nil {
-		return fmt.Errorf("sync top scorers league=%s: %w", lg.ID, err)
+		s.logger.WarnContext(ctx,
+			"sync top scorers failed during schedule sync; continue without blocking schedule flow",
+			"league_id", lg.ID,
+			"error", err,
+		)
 	}
 
 	return nil
@@ -453,21 +457,39 @@ func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.Lea
 	}
 	sort.Ints(typeIDs)
 
+	const maxPagesPerType = 20
+	var syncedTypeCount int
+	failedTypeIDs := make([]int, 0)
+
 	for _, typeID := range typeIDs {
 		page := 1
 		allRows := make([]ExternalTopScorers, 0)
+		typeFailed := false
 
 		for {
+			if page > maxPagesPerType {
+				s.logger.WarnContext(ctx,
+					"top scorers pagination limit reached; stop this type to protect sync runtime",
+					"league_id", leagueID,
+					"season_id", seasonID,
+					"type_id", typeID,
+					"max_pages", maxPagesPerType,
+				)
+				break
+			}
+
 			dataTopScorers, hasMore, err := s.provider.FetchTopScorersBySeasonID(ctx, int(seasonID), page, typeID)
 			if err != nil {
-				return fmt.Errorf(
-					"fetch top scorers season_id=%d type_id=%d page=%d league=%s: %w",
-					seasonID,
-					typeID,
-					page,
-					leagueID,
-					err,
+				typeFailed = true
+				s.logger.WarnContext(ctx,
+					"fetch top scorers failed; skip remaining pages for this type",
+					"league_id", leagueID,
+					"season_id", seasonID,
+					"type_id", typeID,
+					"page", page,
+					"error", err,
 				)
+				break
 			}
 			allRows = append(allRows, dataTopScorers...)
 			if !hasMore {
@@ -475,19 +497,36 @@ func (s *SportDataSyncService) SyncTopScorers(ctx context.Context, lg league.Lea
 			}
 			page++
 		}
+
 		mapped := mappingToModel(allRows)
 		if len(mapped) == 0 {
+			if typeFailed {
+				failedTypeIDs = append(failedTypeIDs, typeID)
+			}
 			continue
 		}
+
 		if err := s.topScore.UpsertTopScorers(ctx, mapped); err != nil {
-			return fmt.Errorf(
-				"upsert top scorers season_id=%d type_id=%d league=%s: %w",
-				seasonID,
-				typeID,
-				leagueID,
-				err,
+			typeFailed = true
+			s.logger.WarnContext(ctx,
+				"upsert top scorers failed",
+				"league_id", leagueID,
+				"season_id", seasonID,
+				"type_id", typeID,
+				"row_count", len(mapped),
+				"error", err,
 			)
 		}
+
+		if typeFailed {
+			failedTypeIDs = append(failedTypeIDs, typeID)
+			continue
+		}
+		syncedTypeCount++
+	}
+
+	if syncedTypeCount == 0 && len(failedTypeIDs) > 0 {
+		return fmt.Errorf("top scorers sync failed for all types league=%s season_id=%d failed_types=%v", leagueID, seasonID, failedTypeIDs)
 	}
 
 	return nil
